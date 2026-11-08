@@ -1,5 +1,5 @@
 /* ==========================================================================
-   state.ts — Estado Central (S), Persistência, Categorias, Orçamentos, Parcelas e Recorrências
+   state.ts — Estado Central (S), Persistência, Categorias, Orçamentos, Parcelas e Estatísticas
    ========================================================================== */
 
 import {
@@ -13,15 +13,17 @@ import {
   type CategoryBudget,
   type CategoryItem,
   type InstallmentInfo,
+  type MonthSummary,
   type PaymentMethod,
   type RecurringInfo,
   type Theme,
+  type ThirdPartyInfo,
   type Transaction,
   type TransactionStatus,
   type TransactionType,
   type ViewName
 } from './types/finance';
-import { addMonthsClamped, cur, dateInMonthClamped, ym } from './utils/date';
+import { addMonthsClamped, cur, dateInMonthClamped, prevM, ym } from './utils/date';
 
 export const K = 'lumen.v1';
 
@@ -122,6 +124,22 @@ export const normalizeRecurring = (raw: unknown): RecurringInfo | undefined => {
     groupId,
     frequency: 'monthly',
     isTemplate: Boolean(obj.isTemplate)
+  };
+};
+
+/**
+ * Normaliza metadados de compras para terceiros (cartão emprestado) se válidos.
+ */
+export const normalizeThirdParty = (raw: unknown): ThirdPartyInfo | undefined => {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const obj = raw as Record<string, unknown>;
+  if (!obj.isThirdParty) return undefined;
+  const personName = typeof obj.personName === 'string' ? obj.personName.trim() : '';
+  if (!personName) return undefined;
+  return {
+    isThirdParty: true,
+    personName,
+    isReimbursed: Boolean(obj.isReimbursed)
   };
 };
 
@@ -234,6 +252,7 @@ export const migrate = (raw: unknown): Partial<AppState> => {
     .map((t) => {
       const installments = normalizeInstallments(t.installments);
       const recurring = normalizeRecurring(t.recurring);
+      const thirdParty = normalizeThirdParty(t.thirdParty);
       const item: Transaction = {
         id: t.id != null ? String(t.id) : crypto.randomUUID(),
         type: t.type === 'in' ? 'in' : 'out',
@@ -247,6 +266,7 @@ export const migrate = (raw: unknown): Partial<AppState> => {
       };
       if (installments) item.installments = installments;
       if (recurring) item.recurring = recurring;
+      if (thirdParty) item.thirdParty = thirdParty;
       return item;
     });
 
@@ -291,12 +311,13 @@ export type InstallmentBaseTx = {
   d: string;
   pay?: PaymentMethod;
   tags?: string[];
+  thirdParty?: ThirdPartyInfo;
 };
 
 /**
  * Função pura que gera N transações parceladas (de 2 a 72x), distribuindo
- * eventuais centavos de resto na primeira parcela e atribuindo 'confirmed' para
- * meses passados/vigente e 'pending' para meses futuros.
+ * eventuais centavos de resto na primeira parcela, replicando thirdParty (se houver)
+ * e atribuindo 'confirmed' para meses passados/vigente e 'pending' para meses futuros.
  */
 export const createInstallments = (
   baseTx: InstallmentBaseTx,
@@ -311,6 +332,7 @@ export const createInstallments = (
   const baseName = baseTx.n.trim() || 'Parcelamento';
   const pay = normalizePay(baseTx.pay);
   const tags = normalizeTags(baseTx.tags);
+  const thirdParty = normalizeThirdParty(baseTx.thirdParty);
 
   const generated: Transaction[] = [];
   for (let i = 0; i < total; i++) {
@@ -320,7 +342,7 @@ export const createInstallments = (
     const status: TransactionStatus =
       installmentYm <= referenceMonth ? 'confirmed' : 'pending';
 
-    generated.push({
+    const item: Transaction = {
       id: crypto.randomUUID(),
       type: baseTx.type,
       v: i === 0 ? basePart + remainder : basePart,
@@ -335,7 +357,17 @@ export const createInstallments = (
         groupId
       },
       status
-    });
+    };
+
+    if (thirdParty) {
+      item.thirdParty = {
+        isThirdParty: true,
+        personName: thirdParty.personName,
+        isReimbursed: false
+      };
+    }
+
+    generated.push(item);
   }
 
   return generated;
@@ -369,7 +401,7 @@ export const materializeRecurring = (targetYm: string = cur): number => {
     const materializedDate = dateInMonthClamped(template.d, targetYm);
     const status: TransactionStatus = targetYm <= cur ? 'confirmed' : 'pending';
 
-    S.tx.push({
+    const item: Transaction = {
       id: crypto.randomUUID(),
       type: template.type,
       v: template.v,
@@ -384,7 +416,15 @@ export const materializeRecurring = (targetYm: string = cur): number => {
         isTemplate: false
       },
       status
-    });
+    };
+    if (template.thirdParty?.isThirdParty) {
+      item.thirdParty = {
+        isThirdParty: true,
+        personName: template.thirdParty.personName,
+        isReimbursed: false
+      };
+    }
+    S.tx.push(item);
     createdCount++;
   }
 
@@ -392,6 +432,64 @@ export const materializeRecurring = (targetYm: string = cur): number => {
     save();
   }
   return createdCount;
+};
+
+/**
+ * Retorna todas as despesas de terceiros ainda não reembolsadas (isThirdParty === true e isReimbursed === false).
+ */
+export const getPendingReimbursements = (): Transaction[] =>
+  S.tx.filter(
+    (t) =>
+      t.type === 'out' &&
+      t.thirdParty?.isThirdParty === true &&
+      t.thirdParty.isReimbursed === false
+  );
+
+/**
+ * Alterna o status de reembolso (isReimbursed) de uma compra de terceiro e persiste.
+ */
+export const toggleReimbursement = (txId: string): void => {
+  const item = S.tx.find((t) => String(t.id) === String(txId));
+  if (!item || !item.thirdParty?.isThirdParty) return;
+  item.thirdParty = {
+    ...item.thirdParty,
+    isReimbursed: !item.thirdParty.isReimbursed
+  };
+  save();
+};
+
+/**
+ * Calcula o histórico consolidado dos últimos 6 meses (ordem cronológica) para o painel de Estatísticas.
+ */
+export const getSemesterHistory = (referenceMonth: string = cur): MonthSummary[] => {
+  const summaries: MonthSummary[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const monthYear = prevM(referenceMonth, i);
+    const monthTx = S.tx.filter(
+      (t) => ym(t.d) === monthYear && (t.status === 'confirmed' || ym(t.d) === monthYear)
+    );
+
+    const totalIncomeCents = monthTx
+      .filter((t) => t.type === 'in')
+      .reduce((acc, t) => acc + t.v, 0);
+
+    const totalPersonalExpenseCents = monthTx
+      .filter((t) => t.type === 'out' && !t.thirdParty?.isThirdParty)
+      .reduce((acc, t) => acc + t.v, 0);
+
+    const totalThirdPartyExpenseCents = monthTx
+      .filter((t) => t.type === 'out' && Boolean(t.thirdParty?.isThirdParty))
+      .reduce((acc, t) => acc + t.v, 0);
+
+    summaries.push({
+      monthYear,
+      totalIncomeCents,
+      totalPersonalExpenseCents,
+      totalThirdPartyExpenseCents,
+      netSavingsCents: totalIncomeCents - totalPersonalExpenseCents
+    });
+  }
+  return summaries;
 };
 
 /**
@@ -528,11 +626,15 @@ export const setSavingsGoal = (goalCents: number): void => {
 };
 
 /**
- * Calcula o progresso de gastos acumulados por categoria orçada no mês (YYYY-MM).
+ * Calcula o progresso de gastos PESSOAIS acumulados por categoria orçada no mês (YYYY-MM).
+ * Compras de terceiros (thirdParty.isThirdParty) não inflam o teto de orçamento pessoal.
  */
 export const getCategoryBudgetsProgress = (monthYear: string): BudgetProgress[] => {
   const monthOut = S.tx.filter(
-    (t) => t.type === 'out' && t.d.slice(0, 7) === monthYear
+    (t) =>
+      t.type === 'out' &&
+      t.d.slice(0, 7) === monthYear &&
+      !t.thirdParty?.isThirdParty
   );
 
   const progresses: BudgetProgress[] = [];
@@ -594,25 +696,30 @@ export type CreateTxInput = Omit<Transaction, 'id' | 'pay' | 'tags' | 'status'> 
 };
 
 /**
- * Cria uma nova movimentação com UUID, valida pay/tags/status, adiciona a S.tx e persiste.
+ * Cria uma nova movimentação com UUID, valida pay/tags/status/thirdParty, adiciona a S.tx e persiste.
  */
 export const addTx = (fields: CreateTxInput): Transaction => {
   const inferredStatus: TransactionStatus =
     fields.status ?? (ym(fields.d) > cur ? 'pending' : 'confirmed');
+  const thirdParty = normalizeThirdParty(fields.thirdParty);
   const tx: Transaction = {
     ...fields,
     id: fields.id || crypto.randomUUID(),
     pay: normalizePay(fields.pay),
     tags: normalizeTags(fields.tags),
+    thirdParty,
     status: inferredStatus
   };
+  if (!thirdParty) {
+    delete tx.thirdParty;
+  }
   S.tx.push(tx);
   save();
   return tx;
 };
 
 /**
- * Busca uma movimentação pelo id em S.tx, atualiza seus campos validando pay/tags/status e persiste.
+ * Busca uma movimentação pelo id em S.tx, atualiza seus campos validando pay/tags/status/thirdParty e persiste.
  */
 export const updateTx = (id: string, data: Partial<Transaction>): void => {
   const item = S.tx.find((t) => String(t.id) === String(id));
@@ -628,6 +735,9 @@ export const updateTx = (id: string, data: Partial<Transaction>): void => {
   if ('status' in data && data.status) {
     updated.status = normalizeStatus(data.status);
   }
+  if ('thirdParty' in data) {
+    updated.thirdParty = normalizeThirdParty(data.thirdParty);
+  }
 
   Object.assign(item, updated, {
     id: item.id,
@@ -635,6 +745,10 @@ export const updateTx = (id: string, data: Partial<Transaction>): void => {
     tags: normalizeTags(updated.tags ?? item.tags),
     status: normalizeStatus(updated.status ?? item.status)
   });
+
+  if ('thirdParty' in data && !updated.thirdParty) {
+    delete item.thirdParty;
+  }
   save();
 };
 

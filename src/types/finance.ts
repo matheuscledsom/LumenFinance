@@ -27,6 +27,20 @@ export interface RecurringInfo {
   isTemplate?: boolean;
 }
 
+export interface ThirdPartyInfo {
+  isThirdParty: boolean;
+  personName: string;
+  isReimbursed: boolean;
+}
+
+export interface MonthSummary {
+  monthYear: string;
+  totalIncomeCents: number;
+  totalPersonalExpenseCents: number;
+  totalThirdPartyExpenseCents: number;
+  netSavingsCents: number;
+}
+
 export interface CategoryItem {
   id: string;
   name: string;
@@ -141,6 +155,7 @@ export interface Transaction {
   tags: string[];
   installments?: InstallmentInfo;
   recurring?: RecurringInfo;
+  thirdParty?: ThirdPartyInfo;
   status: TransactionStatus;
 }
 

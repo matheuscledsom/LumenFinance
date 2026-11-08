@@ -113,6 +113,10 @@ nav button[aria-current="page"] {
     grid-column: 1 / -1;
   }
 
+  .kpi-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
   nav {
     top: 0;
     right: auto;

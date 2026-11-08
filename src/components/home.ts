@@ -1,5 +1,5 @@
 /* ==========================================================================
-   home.ts — Tela Inicial: Saldo, Meta de Economia, Gastos, Orçamentos e Movimentações
+   home.ts — Tela Inicial: Saldo, Meta de Economia, Gastos Pessoais, Orçamentos e Movimentações
    ========================================================================== */
 
 import { S, getCategoryBudgetsProgress, normalizePay, normalizeTags } from '../state';
@@ -12,7 +12,11 @@ export function home(): string {
   const m = prevM(cur, S.per);
   const pm = prevM(cur, S.per + 1);
 
-  const activeForBalance = A.filter((t) => t.status === 'confirmed' || ym(t.d) <= m);
+  const activeForBalance = A.filter(
+    (t) =>
+      (t.status === 'confirmed' || ym(t.d) <= m) &&
+      !(t.type === 'out' && t.thirdParty?.isThirdParty && t.thirdParty.isReimbursed)
+  );
   const bal = sum(activeForBalance);
   const prevBal = sum(
     activeForBalance.filter((t) => ym(t.d) <= prevM(cur, 0) && ym(t.d) < cur)
@@ -22,14 +26,18 @@ export function home(): string {
   const mo = A.filter(
     (t) => ym(t.d) === m && (t.status === 'confirmed' || ym(t.d) === m)
   );
-  const out = mo.filter((t) => t.type === 'out');
+  const out = mo.filter((t) => t.type === 'out' && !t.thirdParty?.isThirdParty);
   const inc = mo.filter((t) => t.type === 'in');
 
   const spent = out.reduce((a, t) => a + t.v, 0);
   const earned = inc.reduce((a, t) => a + t.v, 0);
   const netMonth = earned - spent;
   const pspent = A.filter(
-    (t) => t.type === 'out' && ym(t.d) === pm && (t.status === 'confirmed' || ym(t.d) === pm)
+    (t) =>
+      t.type === 'out' &&
+      !t.thirdParty?.isThirdParty &&
+      ym(t.d) === pm &&
+      (t.status === 'confirmed' || ym(t.d) === pm)
   ).reduce((a, t) => a + t.v, 0);
 
   const sv = pspent ? ((spent - pspent) / pspent) * 100 : null;
@@ -142,7 +150,10 @@ ${
             t.status === 'pending'
               ? `<span class="pill-sub pending">Pendente</span>`
               : '';
-          const subBadges = instBadge + recBadge + pendingBadge;
+          const tpBadge = t.thirdParty?.isThirdParty
+            ? `<span class="pill-sub tp-badge ${t.thirdParty.isReimbursed ? 'pos' : 'tp-pending'}" data-toggle-tp="${esc(t.id)}" role="button" tabindex="0" aria-label="Alternar cobrança de ${esc(t.thirdParty.personName)}">👤 ${esc(t.thirdParty.personName)} · ${t.thirdParty.isReimbursed ? '✓ Pago' : 'A Cobrar'}</span>`
+            : '';
+          const subBadges = tpBadge + instBadge + recBadge + pendingBadge;
           const hasChips = Boolean(subBadges || tagsHtml);
           const payAndTags = `<span class="tx-meta"><span class="mut">${esc(payLabel)}${hasChips ? ' · ' : ''}</span>${subBadges}${tagsHtml}</span>`;
           return `<button class="tx ${t.type}${t.status === 'pending' ? ' pending-tx' : ''}" data-id="${esc(t.id)}" aria-label="Editar ${esc(t.n)}"><span class="av">${esc(icon)}</span><span class="m"><b>${esc(t.n)}</b><span class="mut">${esc(t.c)} · ${dfmt(t.d)}</span>${payAndTags}</span><b class="num ${t.type === 'in' ? 'pos' : 'neg'}">${t.type === 'in' ? '+' : '−'} ${brl(t.v)}</b></button>`;

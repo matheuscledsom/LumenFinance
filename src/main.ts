@@ -12,6 +12,7 @@ import {
   deleteTx,
   createInstallments,
   materializeRecurring,
+  toggleReimbursement,
   addCategory,
   removeCategory,
   setCategoryBudget,
@@ -21,7 +22,14 @@ import {
   resetState,
   normalizePay
 } from './state';
-import type { Category, Theme, Transaction, TransactionType, ViewName } from './types/finance';
+import type {
+  Category,
+  Theme,
+  ThirdPartyInfo,
+  Transaction,
+  TransactionType,
+  ViewName
+} from './types/finance';
 import { lum, con, parseCents } from './utils/currency';
 import { home } from './components/home';
 import { stats } from './components/stats';
@@ -113,6 +121,22 @@ document.addEventListener('click', (e: MouseEvent) => {
   const g = <T extends HTMLElement = HTMLElement>(s: string): T | null =>
     target.closest<T>(s);
   let b: HTMLElement | null;
+
+  if ((b = g('[data-toggle-tp]'))) {
+    e.stopPropagation();
+    const txId = b.dataset.toggleTp;
+    if (txId) {
+      toggleReimbursement(txId);
+      const updated = S.tx.find((x) => String(x.id) === String(txId));
+      render();
+      toast(
+        updated?.thirdParty?.isReimbursed
+          ? 'Reembolso marcado como Pago!'
+          : 'Marcado como A Cobrar'
+      );
+    }
+    return;
+  }
 
   if ((b = g('[data-rm-tag]'))) {
     const tag = b.dataset.rmTag;
@@ -310,6 +334,8 @@ const handleTxFormSubmit = (e: SubmitEvent, formEl: HTMLFormElement): void => {
   const fd = $<HTMLInputElement>('#fd');
   const frec = $<HTMLInputElement>('#frec');
   const finst = $<HTMLInputElement>('#finst');
+  const ftp = $<HTMLInputElement>('#ftp');
+  const ftpName = $<HTMLInputElement>('#ftp-name');
   const ftag = $<HTMLInputElement>('#ftag');
   const fe = $<HTMLElement>('#fe');
 
@@ -320,27 +346,46 @@ const handleTxFormSubmit = (e: SubmitEvent, formEl: HTMLFormElement): void => {
     return;
   }
 
+  const activeType = (formEl.dataset.type === 'in' ? 'in' : 'out') as TransactionType;
+  const isTpChecked = activeType === 'out' && Boolean(ftp?.checked);
+  const tpPerson = (ftpName?.value || '').trim();
+
+  if (isTpChecked && !tpPerson) {
+    e.preventDefault();
+    if (fe) fe.textContent = 'Informe o nome da pessoa para a compra de terceiro.';
+    return;
+  }
+
   if (ftag && ftag.value.trim()) {
     addFormTag(ftag.value);
     ftag.value = '';
   }
 
   const txId = formEl.dataset.txId;
+  const existing = txId ? S.tx.find((t) => String(t.id) === String(txId)) : undefined;
   const instCount = Math.min(72, Math.max(1, parseInt(finst?.value || '1', 10) || 1));
   const isRecurring = Boolean(frec?.checked) && instCount === 1;
 
+  const thirdPartyObj: ThirdPartyInfo | undefined = isTpChecked
+    ? {
+        isThirdParty: true,
+        personName: tpPerson,
+        isReimbursed: existing?.thirdParty?.isReimbursed ?? false
+      }
+    : undefined;
+
   const baseFields = {
-    type: (formEl.dataset.type === 'in' ? 'in' : 'out') as TransactionType,
+    type: activeType,
     v,
     n: (fn?.value || '').trim(),
     c: (fc?.value || 'Outros') as Category,
     d: fd?.value || '',
     pay: normalizePay(fpay?.value),
-    tags: getFormTags()
+    tags: getFormTags(),
+    thirdParty: thirdPartyObj
   };
 
   if (txId) {
-    const existing = S.tx.find((t) => String(t.id) === String(txId));
     const updatedData: Partial<Transaction> = {
       ...baseFields,
       recurring: isRecurring
@@ -354,7 +399,15 @@ const handleTxFormSubmit = (e: SubmitEvent, formEl: HTMLFormElement): void => {
     updateTx(txId, updatedData);
     delete formEl.dataset.txId;
   } else if (instCount > 1) {
-    const generated = createInstallments(baseFields, instCount);
+    const generated = createInstallments(
+      {
+        ...baseFields,
+        thirdParty: isTpChecked
+          ? { isThirdParty: true, personName: tpPerson, isReimbursed: false }
+          : undefined
+      },
+      instCount
+    );
     S.tx.push(...generated);
     save();
   } else if (isRecurring) {
@@ -377,7 +430,7 @@ const handleTxFormSubmit = (e: SubmitEvent, formEl: HTMLFormElement): void => {
 
   render();
 
-  if (baseFields.type === 'out' && baseFields.d) {
+  if (baseFields.type === 'out' && !isTpChecked && baseFields.d) {
     const txMonth = baseFields.d.slice(0, 7);
     const progresses = getCategoryBudgetsProgress(txMonth);
     const catProg = progresses.find(

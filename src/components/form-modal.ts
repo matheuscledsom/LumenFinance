@@ -125,6 +125,24 @@ export function syncRecurrenceAndInstallments(): void {
 }
 
 /**
+ * Sincroniza a exibição da seção e do campo "Nome da pessoa" (#ftp-name) para compras de terceiros.
+ */
+export function syncThirdPartyVisibility(): void {
+  const f = $<HTMLFormElement>('#f');
+  const tpSec = $<HTMLElement>('#ftp-section');
+  const ftp = $<HTMLInputElement>('#ftp');
+  const nameWrap = $<HTMLElement>('#ftp-name-wrap');
+  const isOut = f?.dataset.type !== 'in';
+
+  if (tpSec) {
+    tpSec.style.display = isOut ? 'block' : 'none';
+  }
+  if (nameWrap) {
+    nameWrap.style.display = isOut && Boolean(ftp?.checked) ? 'grid' : 'none';
+  }
+}
+
+/**
  * Atualiza as opções de categoria de S.cats[type] com ícone e nome formatados,
  * além do estado dos botões de tipo (Gasto/Ganho).
  */
@@ -159,6 +177,8 @@ export function cats(selectedCat?: Category): void {
   f.querySelectorAll<HTMLButtonElement>('[data-t]').forEach((b) =>
     b.setAttribute('aria-pressed', String(b.dataset.t === t))
   );
+
+  syncThirdPartyVisibility();
 }
 
 /**
@@ -176,6 +196,8 @@ export function openForm(type: TransactionType, txId: string | null = null): voi
   const dateStr = tx ? tx.d : now.toISOString().slice(0, 10);
   const isRecurring = Boolean(tx?.recurring);
   const instTotal = tx?.installments?.total && tx.installments.total > 1 ? tx.installments.total : 1;
+  const isThirdParty = Boolean(tx?.thirdParty?.isThirdParty);
+  const tpPersonName = tx?.thirdParty?.personName || '';
 
   currentTags = tx ? normalizeTags(tx.tags) : [];
   categoryManuallyChanged = Boolean(tx);
@@ -194,6 +216,7 @@ export function openForm(type: TransactionType, txId: string | null = null): voi
 <label>Data<input id="fd" type="date" value="${esc(dateStr)}" required></label>
 <div class="form-split-row"><label class="chk-row"><input id="frec" type="checkbox"${isRecurring ? ' checked' : ''}><span>Repetir mensalmente</span></label><label>Parcelas<input id="finst" type="number" min="1" max="72" value="${instTotal}"${isRecurring ? ' disabled' : ''}></label></div>
 <div id="finst-prev" class="mut" style="font-size:.8rem;margin-top:4px"></div>
+<div id="ftp-section" style="display:${activeType === 'out' ? 'block' : 'none'}"><label class="chk-row" style="margin-top:6px"><input id="ftp" type="checkbox"${isThirdParty ? ' checked' : ''}><span>Compra para outra pessoa (Cartão emprestado)</span></label><label id="ftp-name-wrap" style="display:${activeType === 'out' && isThirdParty ? 'grid' : 'none'};margin-top:4px">Nome da pessoa<input id="ftp-name" maxlength="40" placeholder="Ex: Irmão, Amigo" value="${esc(tpPersonName)}" autocomplete="off"></label></div>
 <label>Tags<input id="ftag" placeholder="Adicionar tag (Enter ou vírgula)" autocomplete="off"></label>
 <div id="ftags" class="tag-list" aria-live="polite"></div>
 <div id="fe" class="neg" role="alert" style="margin-top:8px;font-size:.85rem"></div>
@@ -212,6 +235,7 @@ export function openForm(type: TransactionType, txId: string | null = null): voi
   cats(tx ? tx.c : undefined);
   renderFormTags();
   syncRecurrenceAndInstallments();
+  syncThirdPartyVisibility();
 
   const fc = $<HTMLSelectElement>('#fc');
   if (fc && typeof fc.addEventListener === 'function') {
@@ -241,6 +265,13 @@ export function openForm(type: TransactionType, txId: string | null = null): voi
     });
     finst.addEventListener('change', () => {
       syncRecurrenceAndInstallments();
+    });
+  }
+
+  const ftp = $<HTMLInputElement>('#ftp');
+  if (ftp && typeof ftp.addEventListener === 'function') {
+    ftp.addEventListener('change', () => {
+      syncThirdPartyVisibility();
     });
   }
 
