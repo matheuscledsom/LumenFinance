@@ -2,14 +2,30 @@
    main.ts — Ponto de Entrada: Boot, Roteamento de Abas, Render Central e Eventos
    ========================================================================== */
 
-import { S, view, setView, save, addTx, updateTx, deleteTx, resetState } from './state';
-import type { Category, Theme, TransactionType, ViewName } from './types/index';
+import {
+  S,
+  view,
+  setView,
+  save,
+  addTx,
+  updateTx,
+  deleteTx,
+  resetState,
+  normalizePay
+} from './state';
+import type { Category, Theme, TransactionType, ViewName } from './types/finance';
 import { lum, con, parseCents } from './utils/currency';
 import { home } from './components/home';
 import { stats } from './components/stats';
 import { calendar } from './components/calendar';
 import { profile } from './components/profile';
-import { openForm, cats } from './components/form-modal';
+import {
+  openForm,
+  cats,
+  getFormTags,
+  addFormTag,
+  removeFormTag
+} from './components/form-modal';
 
 const $ = <T extends Element = HTMLElement>(s: string): T | null =>
   document.querySelector<T>(s);
@@ -89,6 +105,12 @@ document.addEventListener('click', (e: MouseEvent) => {
   const g = <T extends HTMLElement = HTMLElement>(s: string): T | null =>
     target.closest<T>(s);
   let b: HTMLElement | null;
+
+  if ((b = g('[data-rm-tag]'))) {
+    const tag = b.dataset.rmTag;
+    if (tag) removeFormTag(tag);
+    return;
+  }
 
   if ((b = g('[data-add]'))) {
     const addType: TransactionType = b.dataset.add === 'in' ? 'in' : 'out';
@@ -208,7 +230,9 @@ if (formEl) {
     const fv = $<HTMLInputElement>('#fv');
     const fn = $<HTMLInputElement>('#fn');
     const fc = $<HTMLSelectElement>('#fc');
+    const fpay = $<HTMLSelectElement>('#fpay');
     const fd = $<HTMLInputElement>('#fd');
+    const ftag = $<HTMLInputElement>('#ftag');
     const fe = $<HTMLElement>('#fe');
 
     const v = parseCents(fv?.value);
@@ -218,13 +242,20 @@ if (formEl) {
       return;
     }
 
+    if (ftag && ftag.value.trim()) {
+      addFormTag(ftag.value);
+      ftag.value = '';
+    }
+
     const txId = formEl.dataset.txId;
     const updatedFields = {
       type: (formEl.dataset.type === 'in' ? 'in' : 'out') as TransactionType,
       v,
       n: (fn?.value || '').trim(),
       c: (fc?.value || 'Outros') as Category,
-      d: fd?.value || ''
+      d: fd?.value || '',
+      pay: normalizePay(fpay?.value),
+      tags: getFormTags()
     };
 
     if (txId) {

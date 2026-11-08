@@ -2,14 +2,16 @@
    state.ts — Estado Central (S), Persistência (save/get) e Migrações
    ========================================================================== */
 
-import type {
-  AppState,
-  Category,
-  Theme,
-  Transaction,
-  TransactionType,
-  ViewName
-} from './types/index';
+import {
+  isValidPaymentMethod,
+  type AppState,
+  type Category,
+  type PaymentMethod,
+  type Theme,
+  type Transaction,
+  type TransactionType,
+  type ViewName
+} from './types/finance';
 
 export const K = 'lumen.v1';
 
@@ -34,6 +36,39 @@ export const THEMES: [Theme, string][] = [
 export const CAT: Record<TransactionType, Category[]> = {
   out: ['Alimentação', 'Transporte', 'Moradia', 'Saúde', 'Lazer', 'Educação', 'Outros'],
   in: ['Salário', 'Freelance', 'Vendas', 'Rendimentos', 'Outros']
+};
+
+/**
+ * Normaliza e valida uma forma de pagamento, adotando 'money' como fallback seguro.
+ */
+export const normalizePay = (pay: unknown): PaymentMethod =>
+  isValidPaymentMethod(pay) ? pay : 'money';
+
+/**
+ * Normaliza uma tag individual (trim, lowercase, remoção de caracteres inválidos).
+ */
+export const normalizeTag = (raw: string): string =>
+  raw
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^\p{L}\p{N}_-]+/gu, '');
+
+/**
+ * Valida e normaliza uma coleção de tags sem duplicatas.
+ */
+export const normalizeTags = (tags: unknown): string[] => {
+  if (!Array.isArray(tags)) return [];
+  const unique: string[] = [];
+  for (const item of tags) {
+    if (typeof item === 'string') {
+      const cleaned = normalizeTag(item);
+      if (cleaned && !unique.includes(cleaned)) {
+        unique.push(cleaned);
+      }
+    }
+  }
+  return unique;
 };
 
 const defaultTheme = (): Theme =>
@@ -71,7 +106,9 @@ export const migrate = (raw: unknown): Partial<AppState> => {
       v: typeof t.v === 'number' ? t.v : Number(t.v) || 0,
       n: typeof t.n === 'string' ? t.n : String(t.n ?? ''),
       c: (typeof t.c === 'string' ? t.c : 'Outros') as Category,
-      d: typeof t.d === 'string' ? t.d : new Date().toISOString().slice(0, 10)
+      d: typeof t.d === 'string' ? t.d : new Date().toISOString().slice(0, 10),
+      pay: normalizePay(t.pay),
+      tags: normalizeTags(t.tags)
     }));
 
   const result: Partial<AppState> = { tx };
@@ -111,13 +148,21 @@ export const save = (): void => {
   } catch (e) {}
 };
 
+export type CreateTxInput = Omit<Transaction, 'id' | 'pay' | 'tags'> & {
+  id?: string;
+  pay?: PaymentMethod;
+  tags?: string[];
+};
+
 /**
- * Cria uma nova movimentação com UUID, adiciona a S.tx e persiste.
+ * Cria uma nova movimentação com UUID, valida pay e tags, adiciona a S.tx e persiste.
  */
-export const addTx = (fields: Omit<Transaction, 'id'> & { id?: string }): Transaction => {
+export const addTx = (fields: CreateTxInput): Transaction => {
   const tx: Transaction = {
     ...fields,
-    id: fields.id || crypto.randomUUID()
+    id: fields.id || crypto.randomUUID(),
+    pay: normalizePay(fields.pay),
+    tags: normalizeTags(fields.tags)
   };
   S.tx.push(tx);
   save();
@@ -125,17 +170,26 @@ export const addTx = (fields: Omit<Transaction, 'id'> & { id?: string }): Transa
 };
 
 /**
- * Busca uma movimentação pelo id em S.tx, atualiza seus campos e persiste.
+ * Busca uma movimentação pelo id em S.tx, atualiza seus campos validando pay/tags e persiste.
  */
-export const updateTx = (
-  id: string,
-  updatedFields: Partial<Omit<Transaction, 'id'>>
-): Transaction | null => {
+export const updateTx = (id: string, data: Partial<Transaction>): void => {
   const item = S.tx.find((t) => String(t.id) === String(id));
-  if (!item) return null;
-  Object.assign(item, updatedFields, { id: item.id });
+  if (!item) return;
+
+  const updated: Partial<Transaction> = { ...data };
+  if ('pay' in data) {
+    updated.pay = normalizePay(data.pay);
+  }
+  if ('tags' in data) {
+    updated.tags = normalizeTags(data.tags);
+  }
+
+  Object.assign(item, updated, {
+    id: item.id,
+    pay: normalizePay(updated.pay ?? item.pay),
+    tags: normalizeTags(updated.tags ?? item.tags)
+  });
   save();
-  return item;
 };
 
 /**
