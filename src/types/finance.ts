@@ -6,6 +6,27 @@ export type Theme = 'oled' | 'white' | 'grey' | 'xp';
 
 export type TransactionType = 'in' | 'out';
 
+export type TransactionStatus = 'confirmed' | 'pending';
+
+export type RecurringFrequency = 'monthly';
+
+export type InstallmentInput = {
+  totalInstallments: number;
+  totalAmountCents: number;
+};
+
+export interface InstallmentInfo {
+  current: number;
+  total: number;
+  groupId: string;
+}
+
+export interface RecurringInfo {
+  groupId: string;
+  frequency: RecurringFrequency;
+  isTemplate?: boolean;
+}
+
 export interface CategoryItem {
   id: string;
   name: string;
@@ -118,6 +139,9 @@ export interface Transaction {
   d: string;
   pay: PaymentMethod;
   tags: string[];
+  installments?: InstallmentInfo;
+  recurring?: RecurringInfo;
+  status: TransactionStatus;
 }
 
 export interface AppState {

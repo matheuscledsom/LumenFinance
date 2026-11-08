@@ -20,6 +20,42 @@ export const prevM = (m: string, n: number): string => {
 };
 
 /**
+ * Adiciona monthsToAdd meses a uma data ISO (YYYY-MM-DD), ajustando para o último dia
+ * do mês caso o mês subsequente seja mais curto (ex.: 31/01 -> 28/02).
+ */
+export const addMonthsClamped = (dateIso: string, monthsToAdd: number): string => {
+  const parts = dateIso.split('-').map(Number);
+  const y = parts[0] || now.getFullYear();
+  const m = parts[1] || now.getMonth() + 1;
+  const day = parts[2] || 1;
+
+  const firstOfTarget = new Date(y, m - 1 + monthsToAdd, 1);
+  const targetYear = firstOfTarget.getFullYear();
+  const targetMonthIndex = firstOfTarget.getMonth();
+  const maxDayInMonth = new Date(targetYear, targetMonthIndex + 1, 0).getDate();
+  const clampedDay = Math.min(day, maxDayInMonth);
+
+  return (
+    String(targetYear) +
+    '-' +
+    String(targetMonthIndex + 1).padStart(2, '0') +
+    '-' +
+    String(clampedDay).padStart(2, '0')
+  );
+};
+
+/**
+ * Constrói uma data ISO (YYYY-MM-DD) no ano-mês targetYm preservando o dia original (com clamp).
+ */
+export const dateInMonthClamped = (originalDateIso: string, targetYm: string): string => {
+  const origDay = Number(originalDateIso.split('-')[2]) || 1;
+  const [ty, tm] = targetYm.split('-').map(Number);
+  const maxDay = new Date(ty, tm, 0).getDate();
+  const clampedDay = Math.min(origDay, maxDay);
+  return `${targetYm}-${String(clampedDay).padStart(2, '0')}`;
+};
+
+/**
  * Formata uma data YYYY-MM-DD como 'Hoje', 'Ontem' ou 'DD de mmm.'.
  */
 export const dfmt = (d: string): string => {

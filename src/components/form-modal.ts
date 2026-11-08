@@ -10,7 +10,7 @@ import {
   type TransactionType
 } from '../types/finance';
 import { guessCategory } from '../utils/category-guesser';
-import { esc } from '../utils/currency';
+import { esc, parseCents } from '../utils/currency';
 import { now } from '../utils/date';
 
 const $ = <T extends Element = HTMLElement>(s: string): T | null =>
@@ -79,6 +79,52 @@ export function removeFormTag(tag: string): void {
 }
 
 /**
+ * Formata um valor em centavos para BRL explícito no preview de parcelas.
+ */
+const formatBrlPreview = (cents: number): string =>
+  (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+/**
+ * Sincroniza as regras de exclusão mútua entre recorrência (#frec) e parcelas (#finst),
+ * atualizando também o preview em tempo real ("Ex: 3x de R$ 50,00").
+ */
+export function syncRecurrenceAndInstallments(): void {
+  const frec = $<HTMLInputElement>('#frec');
+  const finst = $<HTMLInputElement>('#finst');
+  const fv = $<HTMLInputElement>('#fv');
+  const prev = $<HTMLElement>('#finst-prev');
+  if (!frec || !finst) return;
+
+  const parsedInst = Math.min(72, Math.max(1, parseInt(finst.value || '1', 10) || 1));
+
+  if (frec.checked) {
+    finst.value = '1';
+    finst.disabled = true;
+    frec.disabled = false;
+    if (prev) prev.textContent = '';
+    return;
+  }
+
+  finst.disabled = false;
+
+  if (parsedInst > 1) {
+    frec.checked = false;
+    frec.disabled = true;
+    if (prev) {
+      const totalCents = parseCents(fv?.value);
+      const partCents = totalCents > 0 ? Math.floor(totalCents / parsedInst) : 5000;
+      prev.textContent =
+        totalCents > 0
+          ? `${parsedInst}x de ${formatBrlPreview(partCents)}`
+          : `Ex: ${parsedInst}x de ${formatBrlPreview(partCents)}`;
+    }
+  } else {
+    frec.disabled = false;
+    if (prev) prev.textContent = '';
+  }
+}
+
+/**
  * Atualiza as opções de categoria de S.cats[type] com ícone e nome formatados,
  * além do estado dos botões de tipo (Gasto/Ganho).
  */
@@ -128,6 +174,8 @@ export function openForm(type: TransactionType, txId: string | null = null): voi
   const valStr = tx ? (tx.v / 100).toFixed(2).replace('.', ',') : '';
   const descStr = tx ? tx.n : '';
   const dateStr = tx ? tx.d : now.toISOString().slice(0, 10);
+  const isRecurring = Boolean(tx?.recurring);
+  const instTotal = tx?.installments?.total && tx.installments.total > 1 ? tx.installments.total : 1;
 
   currentTags = tx ? normalizeTags(tx.tags) : [];
   categoryManuallyChanged = Boolean(tx);
@@ -144,6 +192,8 @@ export function openForm(type: TransactionType, txId: string | null = null): voi
 <label>Categoria<select id="fc" style="padding:11px 12px"></select></label>
 <label>Forma de pagamento<select id="fpay" style="padding:11px 12px">${payOptions}</select></label>
 <label>Data<input id="fd" type="date" value="${esc(dateStr)}" required></label>
+<div class="form-split-row"><label class="chk-row"><input id="frec" type="checkbox"${isRecurring ? ' checked' : ''}><span>Repetir mensalmente</span></label><label>Parcelas<input id="finst" type="number" min="1" max="72" value="${instTotal}"${isRecurring ? ' disabled' : ''}></label></div>
+<div id="finst-prev" class="mut" style="font-size:.8rem;margin-top:4px"></div>
 <label>Tags<input id="ftag" placeholder="Adicionar tag (Enter ou vírgula)" autocomplete="off"></label>
 <div id="ftags" class="tag-list" aria-live="polite"></div>
 <div id="fe" class="neg" role="alert" style="margin-top:8px;font-size:.85rem"></div>
@@ -161,11 +211,36 @@ export function openForm(type: TransactionType, txId: string | null = null): voi
 
   cats(tx ? tx.c : undefined);
   renderFormTags();
+  syncRecurrenceAndInstallments();
 
   const fc = $<HTMLSelectElement>('#fc');
   if (fc && typeof fc.addEventListener === 'function') {
     fc.addEventListener('change', () => {
       categoryManuallyChanged = true;
+    });
+  }
+
+  const fv = $<HTMLInputElement>('#fv');
+  if (fv && typeof fv.addEventListener === 'function') {
+    fv.addEventListener('input', () => {
+      syncRecurrenceAndInstallments();
+    });
+  }
+
+  const frec = $<HTMLInputElement>('#frec');
+  if (frec && typeof frec.addEventListener === 'function') {
+    frec.addEventListener('change', () => {
+      syncRecurrenceAndInstallments();
+    });
+  }
+
+  const finst = $<HTMLInputElement>('#finst');
+  if (finst && typeof finst.addEventListener === 'function') {
+    finst.addEventListener('input', () => {
+      syncRecurrenceAndInstallments();
+    });
+    finst.addEventListener('change', () => {
+      syncRecurrenceAndInstallments();
     });
   }
 
@@ -213,7 +288,7 @@ export function openForm(type: TransactionType, txId: string | null = null): voi
 
   $<HTMLDialogElement>('#dlg')?.showModal();
   setTimeout(() => {
-    const fv = $<HTMLInputElement>('#fv');
-    if (fv) fv.focus();
+    const fvEl = $<HTMLInputElement>('#fv');
+    if (fvEl) fvEl.focus();
   }, 50);
 }

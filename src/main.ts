@@ -10,6 +10,8 @@ import {
   addTx,
   updateTx,
   deleteTx,
+  createInstallments,
+  materializeRecurring,
   addCategory,
   removeCategory,
   setCategoryBudget,
@@ -19,7 +21,7 @@ import {
   resetState,
   normalizePay
 } from './state';
-import type { Category, Theme, TransactionType, ViewName } from './types/finance';
+import type { Category, Theme, Transaction, TransactionType, ViewName } from './types/finance';
 import { lum, con, parseCents } from './utils/currency';
 import { home } from './components/home';
 import { stats } from './components/stats';
@@ -306,6 +308,8 @@ const handleTxFormSubmit = (e: SubmitEvent, formEl: HTMLFormElement): void => {
   const fc = $<HTMLSelectElement>('#fc');
   const fpay = $<HTMLSelectElement>('#fpay');
   const fd = $<HTMLInputElement>('#fd');
+  const frec = $<HTMLInputElement>('#frec');
+  const finst = $<HTMLInputElement>('#finst');
   const ftag = $<HTMLInputElement>('#ftag');
   const fe = $<HTMLElement>('#fe');
 
@@ -322,7 +326,10 @@ const handleTxFormSubmit = (e: SubmitEvent, formEl: HTMLFormElement): void => {
   }
 
   const txId = formEl.dataset.txId;
-  const updatedFields = {
+  const instCount = Math.min(72, Math.max(1, parseInt(finst?.value || '1', 10) || 1));
+  const isRecurring = Boolean(frec?.checked) && instCount === 1;
+
+  const baseFields = {
     type: (formEl.dataset.type === 'in' ? 'in' : 'out') as TransactionType,
     v,
     n: (fn?.value || '').trim(),
@@ -333,24 +340,50 @@ const handleTxFormSubmit = (e: SubmitEvent, formEl: HTMLFormElement): void => {
   };
 
   if (txId) {
-    updateTx(txId, updatedFields);
+    const existing = S.tx.find((t) => String(t.id) === String(txId));
+    const updatedData: Partial<Transaction> = {
+      ...baseFields,
+      recurring: isRecurring
+        ? {
+            groupId: existing?.recurring?.groupId || crypto.randomUUID(),
+            frequency: 'monthly',
+            isTemplate: existing?.recurring?.isTemplate ?? true
+          }
+        : undefined
+    };
+    updateTx(txId, updatedData);
     delete formEl.dataset.txId;
+  } else if (instCount > 1) {
+    const generated = createInstallments(baseFields, instCount);
+    S.tx.push(...generated);
+    save();
+  } else if (isRecurring) {
+    addTx({
+      id: crypto.randomUUID(),
+      ...baseFields,
+      recurring: {
+        groupId: crypto.randomUUID(),
+        frequency: 'monthly',
+        isTemplate: true
+      }
+    });
+    materializeRecurring();
   } else {
     addTx({
       id: crypto.randomUUID(),
-      ...updatedFields
+      ...baseFields
     });
   }
 
   render();
 
-  if (updatedFields.type === 'out' && updatedFields.d) {
-    const txMonth = updatedFields.d.slice(0, 7);
+  if (baseFields.type === 'out' && baseFields.d) {
+    const txMonth = baseFields.d.slice(0, 7);
     const progresses = getCategoryBudgetsProgress(txMonth);
     const catProg = progresses.find(
       (p) =>
-        p.categoryName.toLowerCase() === updatedFields.c.toLowerCase() ||
-        p.categoryId === updatedFields.c
+        p.categoryName.toLowerCase() === baseFields.c.toLowerCase() ||
+        p.categoryId === baseFields.c
     );
     if (catProg && catProg.isOverBudget) {
       toast(`Atenção: Limite mensal de ${catProg.categoryName} ultrapassado!`);
@@ -397,6 +430,7 @@ if (formEl && typeof formEl.addEventListener === 'function') {
    Inicialização e Service Worker (PWA)
    ========================================================================== */
 
+materializeRecurring();
 render();
 
 if (

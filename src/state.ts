@@ -1,5 +1,5 @@
 /* ==========================================================================
-   state.ts — Estado Central (S), Persistência (save/get), Categorias, Orçamentos e Migrações
+   state.ts — Estado Central (S), Persistência, Categorias, Orçamentos, Parcelas e Recorrências
    ========================================================================== */
 
 import {
@@ -12,12 +12,16 @@ import {
   type Category,
   type CategoryBudget,
   type CategoryItem,
+  type InstallmentInfo,
   type PaymentMethod,
+  type RecurringInfo,
   type Theme,
   type Transaction,
+  type TransactionStatus,
   type TransactionType,
   type ViewName
 } from './types/finance';
+import { addMonthsClamped, cur, dateInMonthClamped, ym } from './utils/date';
 
 export const K = 'lumen.v1';
 
@@ -79,6 +83,46 @@ export const normalizeTags = (tags: unknown): string[] => {
     }
   }
   return unique;
+};
+
+/**
+ * Normaliza o status de uma movimentação, adotando 'confirmed' como padrão para registros legados.
+ */
+export const normalizeStatus = (status: unknown): TransactionStatus =>
+  status === 'pending' ? 'pending' : 'confirmed';
+
+/**
+ * Normaliza metadados de parcelamento se válidos.
+ */
+export const normalizeInstallments = (raw: unknown): InstallmentInfo | undefined => {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const obj = raw as Record<string, unknown>;
+  const current = Number(obj.current);
+  const total = Number(obj.total);
+  const groupId = typeof obj.groupId === 'string' ? obj.groupId.trim() : '';
+  if (current >= 1 && total >= 2 && groupId) {
+    return {
+      current: Math.floor(current),
+      total: Math.floor(total),
+      groupId
+    };
+  }
+  return undefined;
+};
+
+/**
+ * Normaliza metadados de recorrência mensal se válidos.
+ */
+export const normalizeRecurring = (raw: unknown): RecurringInfo | undefined => {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const obj = raw as Record<string, unknown>;
+  const groupId = typeof obj.groupId === 'string' ? obj.groupId.trim() : '';
+  if (!groupId) return undefined;
+  return {
+    groupId,
+    frequency: 'monthly',
+    isTemplate: Boolean(obj.isTemplate)
+  };
 };
 
 /**
@@ -173,6 +217,7 @@ export const setView = (v: ViewName): void => {
 
 /**
  * Executa migrações de versão do schema mantendo compatibilidade retroativa.
+ * Garante que transações antigas sem 'status' recebam 'confirmed' por padrão.
  */
 export const migrate = (raw: unknown): Partial<AppState> => {
   if (!raw || typeof raw !== 'object') {
@@ -186,16 +231,24 @@ export const migrate = (raw: unknown): Partial<AppState> => {
   const rawTx = Array.isArray(data.tx) ? data.tx : [];
   const tx: Transaction[] = rawTx
     .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
-    .map((t) => ({
-      id: t.id != null ? String(t.id) : crypto.randomUUID(),
-      type: t.type === 'in' ? 'in' : 'out',
-      v: typeof t.v === 'number' ? t.v : Number(t.v) || 0,
-      n: typeof t.n === 'string' ? t.n : String(t.n ?? ''),
-      c: (typeof t.c === 'string' ? t.c : 'Outros') as Category,
-      d: typeof t.d === 'string' ? t.d : new Date().toISOString().slice(0, 10),
-      pay: normalizePay(t.pay),
-      tags: normalizeTags(t.tags)
-    }));
+    .map((t) => {
+      const installments = normalizeInstallments(t.installments);
+      const recurring = normalizeRecurring(t.recurring);
+      const item: Transaction = {
+        id: t.id != null ? String(t.id) : crypto.randomUUID(),
+        type: t.type === 'in' ? 'in' : 'out',
+        v: typeof t.v === 'number' ? t.v : Number(t.v) || 0,
+        n: typeof t.n === 'string' ? t.n : String(t.n ?? ''),
+        c: (typeof t.c === 'string' ? t.c : 'Outros') as Category,
+        d: typeof t.d === 'string' ? t.d : new Date().toISOString().slice(0, 10),
+        pay: normalizePay(t.pay),
+        tags: normalizeTags(t.tags),
+        status: normalizeStatus(t.status)
+      };
+      if (installments) item.installments = installments;
+      if (recurring) item.recurring = recurring;
+      return item;
+    });
 
   const cats = normalizeCategoriesState(data.cats);
   const budgets = normalizeBudgets(data.budgets);
@@ -222,27 +275,139 @@ export const migrate = (raw: unknown): Partial<AppState> => {
 };
 
 /**
- * Carrega o estado persistido do localStorage para o objeto S.
- */
-export const get = (): AppState => {
-  try {
-    const raw: unknown = JSON.parse(localStorage.getItem(K) || '{}');
-    Object.assign(S, migrate(raw));
-  } catch (e) {
-    S.cats = cloneDefaultCategories();
-    S.budgets = {};
-    S.goalCents = 0;
-  }
-  return S;
-};
-
-/**
  * Persiste o estado S no localStorage sob a chave K ('lumen.v1').
  */
 export const save = (): void => {
   try {
     localStorage.setItem(K, JSON.stringify(S));
   } catch (e) {}
+};
+
+export type InstallmentBaseTx = {
+  type: TransactionType;
+  v: number;
+  n: string;
+  c: Category;
+  d: string;
+  pay?: PaymentMethod;
+  tags?: string[];
+};
+
+/**
+ * Função pura que gera N transações parceladas (de 2 a 72x), distribuindo
+ * eventuais centavos de resto na primeira parcela e atribuindo 'confirmed' para
+ * meses passados/vigente e 'pending' para meses futuros.
+ */
+export const createInstallments = (
+  baseTx: InstallmentBaseTx,
+  totalInstallments: number,
+  referenceMonth: string = cur
+): Transaction[] => {
+  const total = Math.min(72, Math.max(2, Math.floor(totalInstallments)));
+  const totalCents = Math.max(0, Math.round(baseTx.v));
+  const basePart = Math.floor(totalCents / total);
+  const remainder = totalCents - basePart * total;
+  const groupId = crypto.randomUUID();
+  const baseName = baseTx.n.trim() || 'Parcelamento';
+  const pay = normalizePay(baseTx.pay);
+  const tags = normalizeTags(baseTx.tags);
+
+  const generated: Transaction[] = [];
+  for (let i = 0; i < total; i++) {
+    const current = i + 1;
+    const installmentDate = addMonthsClamped(baseTx.d, i);
+    const installmentYm = ym(installmentDate);
+    const status: TransactionStatus =
+      installmentYm <= referenceMonth ? 'confirmed' : 'pending';
+
+    generated.push({
+      id: crypto.randomUUID(),
+      type: baseTx.type,
+      v: i === 0 ? basePart + remainder : basePart,
+      n: `${baseName} (${current}/${total})`,
+      c: baseTx.c,
+      d: installmentDate,
+      pay,
+      tags: [...tags],
+      installments: {
+        current,
+        total,
+        groupId
+      },
+      status
+    });
+  }
+
+  return generated;
+};
+
+/**
+ * Rotina de boot que percorre lançamentos marcados como recorrentes e materializa
+ * automaticamente a movimentação do mês vigente caso ainda não exista para aquele groupId.
+ */
+export const materializeRecurring = (targetYm: string = cur): number => {
+  const groups = new Map<string, Transaction[]>();
+
+  for (const t of S.tx) {
+    const gid = t.recurring?.groupId;
+    if (!gid) continue;
+    const list = groups.get(gid) || [];
+    list.push(t);
+    groups.set(gid, list);
+  }
+
+  let createdCount = 0;
+  for (const [groupId, items] of groups.entries()) {
+    const hasInTargetMonth = items.some((t) => ym(t.d) === targetYm);
+    if (hasInTargetMonth) continue;
+
+    const sorted = [...items].sort((a, b) => a.d.localeCompare(b.d));
+    const earliest = sorted[0];
+    if (!earliest || ym(earliest.d) > targetYm) continue;
+
+    const template = items.find((t) => t.recurring?.isTemplate) || sorted[sorted.length - 1];
+    const materializedDate = dateInMonthClamped(template.d, targetYm);
+    const status: TransactionStatus = targetYm <= cur ? 'confirmed' : 'pending';
+
+    S.tx.push({
+      id: crypto.randomUUID(),
+      type: template.type,
+      v: template.v,
+      n: template.n,
+      c: template.c,
+      d: materializedDate,
+      pay: normalizePay(template.pay),
+      tags: normalizeTags(template.tags),
+      recurring: {
+        groupId,
+        frequency: 'monthly',
+        isTemplate: false
+      },
+      status
+    });
+    createdCount++;
+  }
+
+  if (createdCount > 0) {
+    save();
+  }
+  return createdCount;
+};
+
+/**
+ * Carrega o estado persistido do localStorage para o objeto S e materializa recorrências.
+ */
+export const get = (): AppState => {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(K) || '{}');
+    Object.assign(S, migrate(raw));
+    materializeRecurring();
+  } catch (e) {
+    S.cats = cloneDefaultCategories();
+    S.budgets = {};
+    S.goalCents = 0;
+  }
+  return S;
 };
 
 /**
@@ -421,21 +586,25 @@ export const getCategoryBudgetsProgress = (monthYear: string): BudgetProgress[] 
   return progresses;
 };
 
-export type CreateTxInput = Omit<Transaction, 'id' | 'pay' | 'tags'> & {
+export type CreateTxInput = Omit<Transaction, 'id' | 'pay' | 'tags' | 'status'> & {
   id?: string;
   pay?: PaymentMethod;
   tags?: string[];
+  status?: TransactionStatus;
 };
 
 /**
- * Cria uma nova movimentação com UUID, valida pay e tags, adiciona a S.tx e persiste.
+ * Cria uma nova movimentação com UUID, valida pay/tags/status, adiciona a S.tx e persiste.
  */
 export const addTx = (fields: CreateTxInput): Transaction => {
+  const inferredStatus: TransactionStatus =
+    fields.status ?? (ym(fields.d) > cur ? 'pending' : 'confirmed');
   const tx: Transaction = {
     ...fields,
     id: fields.id || crypto.randomUUID(),
     pay: normalizePay(fields.pay),
-    tags: normalizeTags(fields.tags)
+    tags: normalizeTags(fields.tags),
+    status: inferredStatus
   };
   S.tx.push(tx);
   save();
@@ -443,7 +612,7 @@ export const addTx = (fields: CreateTxInput): Transaction => {
 };
 
 /**
- * Busca uma movimentação pelo id em S.tx, atualiza seus campos validando pay/tags e persiste.
+ * Busca uma movimentação pelo id em S.tx, atualiza seus campos validando pay/tags/status e persiste.
  */
 export const updateTx = (id: string, data: Partial<Transaction>): void => {
   const item = S.tx.find((t) => String(t.id) === String(id));
@@ -456,11 +625,15 @@ export const updateTx = (id: string, data: Partial<Transaction>): void => {
   if ('tags' in data) {
     updated.tags = normalizeTags(data.tags);
   }
+  if ('status' in data && data.status) {
+    updated.status = normalizeStatus(data.status);
+  }
 
   Object.assign(item, updated, {
     id: item.id,
     pay: normalizePay(updated.pay ?? item.pay),
-    tags: normalizeTags(updated.tags ?? item.tags)
+    tags: normalizeTags(updated.tags ?? item.tags),
+    status: normalizeStatus(updated.status ?? item.status)
   });
   save();
 };

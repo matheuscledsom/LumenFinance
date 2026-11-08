@@ -12,21 +12,25 @@ export function home(): string {
   const m = prevM(cur, S.per);
   const pm = prevM(cur, S.per + 1);
 
-  const bal = sum(A);
-  const prevBal = sum(A.filter((t) => ym(t.d) <= prevM(cur, 0) && ym(t.d) < cur));
+  const activeForBalance = A.filter((t) => t.status === 'confirmed' || ym(t.d) <= m);
+  const bal = sum(activeForBalance);
+  const prevBal = sum(
+    activeForBalance.filter((t) => ym(t.d) <= prevM(cur, 0) && ym(t.d) < cur)
+  );
   const chg = prevBal ? ((bal - prevBal) / Math.abs(prevBal)) * 100 : null;
 
-  const mo = A.filter((t) => ym(t.d) === m);
+  const mo = A.filter(
+    (t) => ym(t.d) === m && (t.status === 'confirmed' || ym(t.d) === m)
+  );
   const out = mo.filter((t) => t.type === 'out');
   const inc = mo.filter((t) => t.type === 'in');
 
   const spent = out.reduce((a, t) => a + t.v, 0);
   const earned = inc.reduce((a, t) => a + t.v, 0);
   const netMonth = earned - spent;
-  const pspent = A.filter((t) => t.type === 'out' && ym(t.d) === pm).reduce(
-    (a, t) => a + t.v,
-    0
-  );
+  const pspent = A.filter(
+    (t) => t.type === 'out' && ym(t.d) === pm && (t.status === 'confirmed' || ym(t.d) === pm)
+  ).reduce((a, t) => a + t.v, 0);
 
   const sv = pspent ? ((spent - pspent) / pspent) * 100 : null;
   const pct = earned ? Math.min(100, (spent / earned) * 100) : 0;
@@ -74,7 +78,8 @@ export function home(): string {
         .join('')
     : '';
 
-  const last = [...A]
+  const visibleTx = A.filter((t) => t.status === 'confirmed' || ym(t.d) <= m);
+  const last = [...(visibleTx.length ? visibleTx : A)]
     .reverse()
     .sort((a, b) => b.d.localeCompare(a.d))
     .slice(0, 6);
@@ -128,8 +133,19 @@ ${
           const tagsHtml = tags
             .map((tag) => `<span class="pill-tag">#${esc(tag)}</span>`)
             .join('');
-          const payAndTags = `<span class="tx-meta"><span class="mut">${esc(payLabel)}${tags.length ? ' · ' : ''}</span>${tagsHtml}</span>`;
-          return `<button class="tx ${t.type}" data-id="${esc(t.id)}" aria-label="Editar ${esc(t.n)}"><span class="av">${esc(icon)}</span><span class="m"><b>${esc(t.n)}</b><span class="mut">${esc(t.c)} · ${dfmt(t.d)}</span>${payAndTags}</span><b class="num ${t.type === 'in' ? 'pos' : 'neg'}">${t.type === 'in' ? '+' : '−'} ${brl(t.v)}</b></button>`;
+          const instBadge =
+            t.installments && t.installments.total > 1
+              ? `<span class="pill-sub">💳 ${t.installments.current}/${t.installments.total}</span>`
+              : '';
+          const recBadge = t.recurring ? `<span class="pill-sub">🔁 Fixa</span>` : '';
+          const pendingBadge =
+            t.status === 'pending'
+              ? `<span class="pill-sub pending">Pendente</span>`
+              : '';
+          const subBadges = instBadge + recBadge + pendingBadge;
+          const hasChips = Boolean(subBadges || tagsHtml);
+          const payAndTags = `<span class="tx-meta"><span class="mut">${esc(payLabel)}${hasChips ? ' · ' : ''}</span>${subBadges}${tagsHtml}</span>`;
+          return `<button class="tx ${t.type}${t.status === 'pending' ? ' pending-tx' : ''}" data-id="${esc(t.id)}" aria-label="Editar ${esc(t.n)}"><span class="av">${esc(icon)}</span><span class="m"><b>${esc(t.n)}</b><span class="mut">${esc(t.c)} · ${dfmt(t.d)}</span>${payAndTags}</span><b class="num ${t.type === 'in' ? 'pos' : 'neg'}">${t.type === 'in' ? '+' : '−'} ${brl(t.v)}</b></button>`;
         })
         .join('') + '<div class="mut" style="margin-top:8px">Toque em uma movimentação para editá-la.</div>'
     : `<div class="empty">Suas movimentações aparecerão aqui.<br><button class="btn p" data-add="in">Registrar ganho</button></div>`
