@@ -48,7 +48,7 @@ export function home() {
     })
     .join('');
 
-  const last = [...A].sort((a, b) => b.d.localeCompare(a.d) || b.id - a.id).slice(0, 6);
+  const last = [...A].reverse().sort((a, b) => b.d.localeCompare(a.d)).slice(0, 6);
   const ch = (t, r = '') => `<div class="ch"><span>${t}</span>${r}</div>`;
 
   return `<header class="wide"><h1>Olá, <b>${esc(S.name)}</b><div class="mut" style="font-size:.8rem;font-weight:500">${now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</div></h1>
@@ -67,7 +67,7 @@ ${
 <section class="card">${ch('Últimas movimentações')}<div class="cb">
 ${
   last.length
-    ? last.map((t) => `<button class="tx ${t.type}" data-id="${t.id}" aria-label="Excluir ${esc(t.n)}"><span class="av">${esc(t.c[0])}</span><span class="m"><b>${esc(t.n)}</b><span class="mut">${esc(t.c)} · ${dfmt(t.d)}</span></span><b class="num ${t.type === 'in' ? 'pos' : 'neg'}">${t.type === 'in' ? '+' : '−'} ${brl(t.v)}</b></button>`).join('') + '<div class="mut" style="margin-top:8px">Toque em uma movimentação para excluí-la.</div>'
+    ? last.map((t) => `<button class="tx ${t.type}" data-id="${esc(t.id)}" aria-label="Editar ${esc(t.n)}"><span class="av">${esc(t.c[0])}</span><span class="m"><b>${esc(t.n)}</b><span class="mut">${esc(t.c)} · ${dfmt(t.d)}</span></span><b class="num ${t.type === 'in' ? 'pos' : 'neg'}">${t.type === 'in' ? '+' : '−'} ${brl(t.v)}</b></button>`).join('') + '<div class="mut" style="margin-top:8px">Toque em uma movimentação para editá-la.</div>'
     : `<div class="empty">Suas movimentações aparecerão aqui.<br><button class="btn p" data-add="in">Registrar ganho</button></div>`
 }</div></section>`;
 }

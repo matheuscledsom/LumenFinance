@@ -77,6 +77,11 @@
   color: var(--on);
 }
 
+.btn.neg {
+  border-color: var(--neg);
+  color: var(--neg);
+}
+
 select {
   background: var(--card);
   border: 1px solid var(--bd);
@@ -297,6 +302,11 @@ input {
 [data-theme="xp"] .seg button[aria-pressed="true"] {
   background: linear-gradient(#5aa24a, #2f7a21);
   color: #fff;
+}
+
+[data-theme="xp"] .btn.neg {
+  border-color: var(--neg);
+  color: var(--neg);
 }
 
 [data-theme="xp"] .bal {

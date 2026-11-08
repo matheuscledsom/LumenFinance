@@ -2,7 +2,7 @@
    app.js — Ponto de Entrada: Boot, Roteamento de Abas, Render Central e Eventos
    ========================================================================== */
 
-import { S, view, setView, save, resetState } from './state.js';
+import { S, view, setView, save, addTx, updateTx, deleteTx, resetState } from './state.js';
 import { lum, con, parseCents } from './utils/currency.js';
 import { home } from './components/home.js';
 import { stats } from './components/stats.js';
@@ -106,14 +106,22 @@ document.addEventListener('click', (e) => {
   }
   if (g('#fx')) return $('#dlg').close();
 
-  if ((b = g('.tx'))) {
-    const t = S.tx.find((x) => x.id == b.dataset.id);
-    if (t && confirm('Excluir "' + t.n + '"?')) {
-      S.tx = S.tx.filter((x) => x !== t);
-      save();
+  if ((b = g('#fdel') || g('[data-del]'))) {
+    const txId = b.dataset.del || $('#f')?.dataset.txId;
+    const t = S.tx.find((x) => String(x.id) === String(txId));
+    if (txId && confirm(t ? `Excluir "${t.n}"?` : 'Excluir esta movimentação?')) {
+      deleteTx(txId);
+      delete $('#f').dataset.txId;
+      $('#dlg').close();
       render();
       toast('Movimentação excluída');
     }
+    return;
+  }
+
+  if ((b = g('.tx'))) {
+    const t = S.tx.find((x) => String(x.id) === String(b.dataset.id));
+    if (t) openForm(t.type, t.id);
     return;
   }
 
@@ -162,17 +170,27 @@ if (formEl) {
       $('#fe').textContent = 'Informe um valor maior que zero, como 45,50.';
       return;
     }
-    S.tx.push({
-      id: Date.now(),
-      type: $('#f').dataset.type,
+    const txId = formEl.dataset.txId;
+    const updatedFields = {
+      type: formEl.dataset.type,
       v,
       n: $('#fn').value.trim(),
       c: $('#fc').value,
       d: $('#fd').value
-    });
-    save();
-    render();
-    toast('Movimentação salva');
+    };
+    if (txId) {
+      updateTx(txId, updatedFields);
+      delete formEl.dataset.txId;
+      render();
+      toast('Movimentação atualizada');
+    } else {
+      addTx({
+        id: crypto.randomUUID(),
+        ...updatedFields
+      });
+      render();
+      toast('Movimentação salva');
+    }
   });
 }
 

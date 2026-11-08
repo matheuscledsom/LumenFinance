@@ -36,7 +36,7 @@ export const parseCSV = (csvText = '') => {
       const cents = parseInt(v, 10);
       if (!type || !(cents > 0) || !d) return null;
       return {
-        id: Number(id) || Date.now() + idx,
+        id: id || crypto.randomUUID(),
         type: type === 'in' ? 'in' : 'out',
         v: cents,
         n: (n || 'Movimentação').slice(0, 60),

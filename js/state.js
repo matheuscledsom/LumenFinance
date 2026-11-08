@@ -53,6 +53,10 @@ export const setView = (v) => {
 export const migrate = (raw) => {
   if (!raw || typeof raw !== 'object') return {};
   if (!Array.isArray(raw.tx)) raw.tx = [];
+  raw.tx = raw.tx.map((t) => ({
+    ...t,
+    id: t.id != null ? String(t.id) : crypto.randomUUID()
+  }));
   return raw;
 };
 
@@ -74,6 +78,38 @@ export const save = () => {
   try {
     localStorage.setItem(K, JSON.stringify(S));
   } catch (e) {}
+};
+
+/**
+ * Cria uma nova movimentação com UUID, adiciona a S.tx e persiste.
+ */
+export const addTx = (fields) => {
+  const tx = {
+    ...fields,
+    id: fields?.id || crypto.randomUUID()
+  };
+  S.tx.push(tx);
+  save();
+  return tx;
+};
+
+/**
+ * Busca uma movimentação pelo id em S.tx, atualiza seus campos e persiste.
+ */
+export const updateTx = (id, updatedFields) => {
+  const item = S.tx.find((t) => String(t.id) === String(id));
+  if (!item) return null;
+  Object.assign(item, updatedFields, { id: item.id });
+  save();
+  return item;
+};
+
+/**
+ * Remove uma movimentação pelo id de S.tx e persiste.
+ */
+export const deleteTx = (id) => {
+  S.tx = S.tx.filter((t) => String(t.id) !== String(id));
+  save();
 };
 
 /**
