@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="oled">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Lumen Finance</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+  <style>
+    /* ==========================================================================
+       1. Tokens & Temas
+       ========================================================================== */
+    :root {
+      --bg: #050507;
+      --card: #0d0d12;
+      --bd: #1f1f2a;
+      --tx: #f2f2f7;
+      --mut: #8a8a99;
+      --pos: #22c55e;
+      --neg: #f0626b;
+      --ac: #8b5cf6;
+      --on: #fff;
+      --r: 20px;
+      --sh: none;
+      --font: 'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      box-sizing: border-box;
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    html {
+      height: 100%;
+      scroll-padding-top: env(safe-area-inset-top, 0px);
+      color-scheme: dark;
+    }
+
+    [data-theme="white"] {
+      --bg: #f3f4f8;
+      --card: #fff;
+      --bd: #e4e6ee;
+      --tx: #15151d;
+      --mut: #6a6c7b;
+      --pos: #15803d;
+      --neg: #dc2626;
+      --sh: 0 1px 3px rgba(20, 20, 40, .08);
+      color-scheme: light;
+    }
+
+    [data-theme="grey"] {
+      --bg: #1d1e23;
+      --card: #2a2c33;
+      --bd: #3b3e48;
+      --tx: #eceef3;
+      --mut: #a0a4b2;
+    }
+
+    [data-theme="xp"] {
+      --bg: #ece9d8;
+      --card: #fff;
+      --bd: #0b3fb8;
+      --tx: #111;
+      --mut: #555;
+      --pos: #0a7d1f;
+      --neg: #c01818;
+      --r: 6px;
+      --font: Tahoma, 'Segoe UI', Verdana, sans-serif;
+      color-scheme: light;
+    }
+
+    /* ==========================================================================
+       2. Reset & Base
+       ========================================================================== */
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--tx);
+      font-family: var(--font);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+      color: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--ac);
+      outline-offset: 2px;
+    }
+
+    .num {
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -.02em;
+    }
+
+    .mut {
+      color: var(--mut);
+      font-size: .85rem;
+    }
+
+    .pos {
+      color: var(--pos);
+    }
+
+    .neg {
+      color: var(--neg);
+    }
+
+    /* ==========================================================================
+       3. Layout & Componentes Principais
+       ========================================================================== */
+    main {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 16px 16px 110px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--bd);
+      border-radius: var(--r);
+      box-shadow: var(--sh);
+      overflow: hidden;
+    }
+
+    .ch {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 14px 16px 0;
+      font-weight: 700;
+    }
+
+    .cb {
+      padding: 12px 16px 16px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    header h1 {
+      font-size: 1.6rem;
+      margin: 0;
+      font-weight: 500;
+      color: var(--mut);
+    }
+
+    header h1 b {
+      color: var(--ac);
+      font-weight: 800;
+    }
+
+    .ib {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      border: 1px solid var(--bd);
+      background: var(--card);
+      display: grid;
+      place-items: center;
+      font-size: 1.1rem;
+    }
+
+    /* ==========================================================================
+       4. Saldo, Ações & Resumo de Gastos
+       ========================================================================== */
+    .bal {
+      background: linear-gradient(135deg, color-mix(in srgb, var(--ac) 22%, var(--card)), var(--card) 70%);
+    }
+
+    .big {
+      font-size: clamp(2.2rem, 9vw, 3rem);
+      font-weight: 800;
+      margin: 6px 0;
+    }
+
+    .big small {
+      font-size: .5em;
+      font-weight: 600;
+      color: var(--mut);
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 99px;
+      border: 1px solid var(--bd);
+      font-size: .8rem;
+      font-weight: 600;
+    }
+
+    .acts {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .btn {
+      min-height: 52px;
+      border-radius: var(--r);
+      border: 1px solid var(--ac);
+      background: transparent;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 14px;
+    }
+
+    .btn.p {
+      background: var(--ac);
+      color: var(--on);
+    }
+
+    select {
+      background: var(--card);
+      border: 1px solid var(--bd);
+      border-radius: 12px;
+      padding: 6px 10px;
+    }
+
+    .spend {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .leg {
+      display: grid;
+      gap: 8px;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--bd);
+    }
+
+    .leg div {
+      display: grid;
+      grid-template-columns: 14px 1fr auto 44px;
+      gap: 10px;
+      align-items: center;
+      font-size: .9rem;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    /* ==========================================================================
+       5. Lista de Movimentações & Estado Vazio
+       ========================================================================== */
+    .tx {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 4px;
+      border-bottom: 1px solid var(--bd);
+      width: 100%;
+      background: none;
+      border-inline: 0;
+      border-top: 0;
+      text-align: left;
+    }
+
+    .tx:last-child {
+      border-bottom: 0;
+    }
+
+    .av {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      background: color-mix(in srgb, var(--ac) 18%, transparent);
+      color: var(--ac);
+      flex: none;
+    }
+
+    .tx.in .av {
+      background: color-mix(in srgb, var(--pos) 18%, transparent);
+      color: var(--pos);
+    }
+
+    .tx .m {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .tx .m b {
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .empty {
+      text-align: center;
+      padding: 18px 8px;
+      color: var(--mut);
+    }
+
+    .empty .btn {
+      margin: 12px auto 0;
+      width: max-content;
+    }
+
+    /* ==========================================================================
+       6. Navegação, FAB, Modal & Controles de Formulário
+       ========================================================================== */
+    nav {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      justify-content: space-around;
+      background: var(--card);
+      border-top: 1px solid var(--bd);
+      padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+    }
+
+    nav button {
+      background: none;
+      border: 0;
+      display: grid;
+      gap: 2px;
+      justify-items: center;
+      font-size: .75rem;
+      color: var(--mut);
+      padding: 6px 14px;
+      border-radius: 12px;
+    }
+
+    nav button span {
+      font-size: 1.3rem;
+    }
+
+    nav button[aria-current="page"] {
+      color: var(--ac);
+      font-weight: 700;
+    }
+
+    .fab {
+      position: fixed;
+      right: 18px;
+      bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      border: 0;
+      background: var(--ac);
+      color: var(--on);
+      font-size: 1.8rem;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
+    }
+
+    dialog {
+      border: 1px solid var(--bd);
+      border-radius: var(--r);
+      background: var(--card);
+      color: var(--tx);
+      width: min(420px, calc(100% - 24px));
+      padding: 18px;
+    }
+
+    dialog::backdrop {
+      background: rgba(0, 0, 0, .6);
+    }
+
+    label {
+      display: grid;
+      gap: 4px;
+      margin-top: 12px;
+      font-size: .85rem;
+      color: var(--mut);
+    }
+
+    input {
+      background: var(--bg);
+      border: 1px solid var(--bd);
+      border-radius: 12px;
+      padding: 11px 12px;
+      color: var(--tx);
+      width: 100%;
+    }
+
+    .seg {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .seg button {
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid var(--bd);
+      background: none;
+    }
+
+    .seg button[aria-pressed="true"] {
+      background: var(--ac);
+      color: var(--on);
+      border-color: var(--ac);
+    }
+
+    .sw {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .sw button {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 2px solid var(--bd);
+    }
+
+    .sw button[aria-pressed="true"] {
+      border-color: var(--tx);
+    }
+
+    .th {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .th button {
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--bd);
+      background: none;
+    }
+
+    .th button[aria-pressed="true"] {
+      border-color: var(--ac);
+      color: var(--ac);
+      font-weight: 700;
+    }
+
+    #toast {
+      position: fixed;
+      left: 50%;
+      top: calc(14px + env(safe-area-inset-top, 0px));
+      transform: translateX(-50%);
+      background: var(--tx);
+      color: var(--bg);
+      padding: 10px 16px;
+      border-radius: 12px;
+      font-size: .9rem;
+      display: none;
+      z-index: 9;
+    }
+
+    /* ==========================================================================
+       7. Tema Especial: Windows XP
+       ========================================================================== */
+    [data-theme="xp"] .ch {
+      background: linear-gradient(#2f7bf5, #0a52d6);
+      color: #fff;
+      padding: 7px 10px;
+      margin: 0;
+      font-size: .9rem;
+    }
+
+    [data-theme="xp"] .card {
+      border-width: 2px;
+    }
+
+    [data-theme="xp"] .btn,
+    [data-theme="xp"] .th button,
+    [data-theme="xp"] .seg button {
+      background: linear-gradient(#fff, #e3e1d2);
+      border: 1px solid #003c74;
+      border-radius: 4px;
+      color: #111;
+    }
+
+    [data-theme="xp"] .btn.p,
+    [data-theme="xp"] .seg button[aria-pressed="true"] {
+      background: linear-gradient(#5aa24a, #2f7a21);
+      color: #fff;
+    }
+
+    [data-theme="xp"] nav,
+    [data-theme="xp"] .bal {
+      background: linear-gradient(#3a85f7, #0b4fd0);
+      color: #fff;
+    }
+
+    [data-theme="xp"] nav button {
+      color: #dbe8ff;
+    }
+
+    [data-theme="xp"] nav button[aria-current="page"] {
+      color: #fff;
+    }
+
+    [data-theme="xp"] .bal .mut,
+    [data-theme="xp"] .bal .big small {
+      color: #dbe8ff;
+    }
+
+    [data-theme="xp"] .bal .pos {
+      color: #b6ffb0;
+    }
+
+    [data-theme="xp"] header h1 b {
+      color: #0b3fb8;
+    }
+
+    /* ==========================================================================
+       8. Responsividade & Acessibilidade de Movimento
+       ========================================================================== */
+    @media (min-width: 900px) {
+      main {
+        padding: 28px 28px 40px 248px;
+        max-width: none;
+        grid-template-columns: 1fr 1fr;
+        align-items: start;
+      }
+
+      main > .wide {
+        grid-column: 1 / -1;
+      }
+
+      nav {
+        top: 0;
+        right: auto;
+        bottom: auto;
+        width: 220px;
+        flex-direction: column;
+        justify-content: flex-start;
+        gap: 6px;
+        padding: 28px 14px;
+        border-top: 0;
+        border-right: 1px solid var(--bd);
+      }
+
+      nav button {
+        grid-auto-flow: column;
+        justify-content: start;
+        gap: 12px;
+        font-size: 1rem;
+      }
+
+      .fab {
+        display: none;
+      }
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .card {
+        transition: border-color .2s;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="toast" role="status"></div>
+  <main id="app"></main>
+  <button class="fab" id="fab" aria-label="Registrar movimentação">+</button>
+  <nav id="nav" aria-label="Navegação principal"></nav>
+  <dialog id="dlg" aria-labelledby="dt">
+    <form id="f" method="dialog"></form>
+  </dialog>
+
+  <script>
+    /* ==========================================================================
+       1. Constantes e Configurações
+       ========================================================================== */
+    const K = 'lumen.v1';
+
+    const ACC = [
+      ['Roxo', '#8b5cf6'],
+      ['Azul', '#3b82f6'],
+      ['Ciano', '#06b6d4'],
+      ['Verde', '#22c55e'],
+      ['Vermelho', '#ef4444'],
+      ['Laranja', '#f97316'],
+      ['Rosa', '#ec4899'],
+      ['Amarelo', '#eab308']
+    ];
+
+    const THEMES = [
+      ['oled', 'OLED'],
+      ['white', 'Branco'],
+      ['grey', 'Cinza escuro'],
+      ['xp', 'Windows XP']
+    ];
+
+    const CAT = {
+      out: ['Alimentação', 'Transporte', 'Moradia', 'Saúde', 'Lazer', 'Educação', 'Outros'],
+      in: ['Salário', 'Freelance', 'Vendas', 'Rendimentos', 'Outros']
+    };
+
+    /* ==========================================================================
+       2. Estado Central (S) & Persistência (save)
+       ========================================================================== */
+    let S = {
+      name: 'Matheus',
+      theme: matchMedia('(prefers-color-scheme: light)').matches ? 'white' : 'oled',
+      accent: '#8b5cf6',
+      hide: false,
+      per: 0,
+      tx: []
+    };
+    let view = 'home';
+
+    try {
+      Object.assign(S, JSON.parse(localStorage.getItem(K) || '{}'));
+    } catch (e) {}
+
+    const save = () => {
+      try {
+        localStorage.setItem(K, JSON.stringify(S));
+      } catch (e) {}
+    };
+
+    /* ==========================================================================
+       3. Utilitários de DOM, Formatação, Cores e Datas
+       ========================================================================== */
+    const $ = (s) => document.querySelector(s);
+
+    const esc = (s) =>
+      String(s).replace(/[&<>"]/g, (c) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;'
+      }[c]));
+
+    const brl = (c) =>
+      S.hide
+        ? 'R$ ••••'
+        : (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+    const lum = (h) => {
+      const v = [1, 3, 5].map((i) => {
+        const x = parseInt(h.substr(i, 2), 16) / 255;
+        return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+    };
+
+    const con = (a, b) => {
+      const x = lum(a);
+      const y = lum(b);
+      return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+    };
+
+    const toast = (m) => {
+      const t = $('#toast');
+      t.textContent = m;
+      t.style.display = 'block';
+      clearTimeout(toast.t);
+      toast.t = setTimeout(() => (t.style.display = 'none'), 2600);
+    };
+
+    function theme() {
+      const d = document.documentElement;
+      d.dataset.theme = S.theme;
+      d.style.setProperty('--ac', S.accent);
+      d.style.setProperty('--on', lum(S.accent) > 0.4 ? '#111' : '#fff');
+    }
+
+    const ym = (d) => d.slice(0, 7);
+    const now = new Date();
+    const cur = now.toISOString().slice(0, 7);
+
+    const prevM = (m, n) => {
+      const [y, mo] = m.split('-').map(Number);
+      const d = new Date(y, mo - 1 - n, 1);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    };
+
+    const sgn = (t) => (t.type === 'in' ? t.v : -t.v);
+    const sum = (l) => l.reduce((a, t) => a + sgn(t), 0);
+
+    const dfmt = (d) => {
+      const t = new Date(d + 'T12:00:00');
+      const h = new Date(cur + '-01');
+      const diff = Math.round(
+        (new Date(now.toISOString().slice(0, 10) + 'T12:00:00') - t) / 864e5
+      );
+      return diff === 0
+        ? 'Hoje'
+        : diff === 1
+        ? 'Ontem'
+        : t.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+    };
+
+    /* ==========================================================================
+       4. Views e Renderização Principal (render)
+       ========================================================================== */
+    function home() {
+      const A = S.tx;
+      const m = prevM(cur, S.per);
+      const pm = prevM(cur, S.per + 1);
+
+      const bal = sum(A);
+      const prevBal = sum(A.filter((t) => ym(t.d) <= prevM(cur, 0) && ym(t.d) < cur));
+      const chg = prevBal ? ((bal - prevBal) / Math.abs(prevBal)) * 100 : null;
+
+      const mo = A.filter((t) => ym(t.d) === m);
+      const out = mo.filter((t) => t.type === 'out');
+      const inc = mo.filter((t) => t.type === 'in');
+
+      const spent = out.reduce((a, t) => a + t.v, 0);
+      const earned = inc.reduce((a, t) => a + t.v, 0);
+      const pspent = A.filter((t) => t.type === 'out' && ym(t.d) === pm).reduce(
+        (a, t) => a + t.v,
+        0
+      );
+
+      const sv = pspent ? ((spent - pspent) / pspent) * 100 : null;
+      const pct = earned ? Math.min(100, (spent / earned) * 100) : 0;
+
+      const by = {};
+      out.forEach((t) => (by[t.c] = (by[t.c] || 0) + t.v));
+      const rows = Object.entries(by).sort((a, b) => b[1] - a[1]);
+      const top = rows.slice(0, 3);
+      const rest = rows.slice(3).reduce((a, r) => a + r[1], 0);
+      if (rest) top.push(['Outros', rest]);
+
+      const R = 44;
+      const C = 2 * Math.PI * R;
+      let off = 0;
+      const arcs = top
+        .map((r, i) => {
+          const f = r[1] / spent;
+          const s = `<circle r="${R}" cx="60" cy="60" fill="none" stroke="var(--ac)" stroke-opacity="${1 - i * 0.22}" stroke-width="14" stroke-dasharray="${f * C} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 60 60)"/>`;
+          off += f * C;
+          return s;
+        })
+        .join('');
+
+      const last = [...A].sort((a, b) => b.d.localeCompare(a.d) || b.id - a.id).slice(0, 6);
+      const ch = (t, r = '') => `<div class="ch"><span>${t}</span>${r}</div>`;
+
+      return `<header class="wide"><h1>Olá, <b>${esc(S.name)}</b><div class="mut" style="font-size:.8rem;font-weight:500">${now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</div></h1>
+<div style="display:flex;gap:8px"><button class="ib" id="eye" aria-label="${S.hide ? 'Mostrar' : 'Ocultar'} valores" aria-pressed="${S.hide}">${S.hide ? '🙈' : '👁'}</button><button class="ib" data-v="profile" aria-label="Configurações">⚙</button></div></header>
+<section class="card bal wide">${ch('Saldo total')}<div class="cb"><div class="big num">${brl(bal)}</div>
+<span class="pill ${chg == null ? '' : chg >= 0 ? 'pos' : 'neg'}">${chg == null ? 'Sem mês anterior para comparar' : (chg >= 0 ? '↑ +' : '↓ ') + chg.toFixed(0) + '% vs. mês passado'}</span></div></section>
+<div class="acts wide"><button class="btn" data-add="out">− Registrar gasto</button><button class="btn p" data-add="in">+ Registrar ganho</button></div>
+<section class="card">${ch('Seus gastos', `<select id="per" aria-label="Período"><option value="0">Este mês</option><option value="1">Mês passado</option></select>`)}<div class="cb">
+${
+  spent
+    ? `<div class="spend"><div><div class="big num" style="font-size:1.8rem">${brl(spent)}</div><div class="mut">Total de gastos</div>${sv == null ? '' : `<div class="${sv <= 0 ? 'pos' : 'neg'}" style="margin-top:8px;font-weight:700">${sv <= 0 ? '↓' : '↑'} ${Math.abs(sv).toFixed(0)}% <span class="mut">vs. mês anterior</span></div>`}</div>
+<svg width="120" height="120" viewBox="0 0 120 120" role="img" aria-label="${pct.toFixed(0)}% da renda gasta"><circle r="${R}" cx="60" cy="60" fill="none" stroke="var(--bd)" stroke-width="14"/>${arcs}<text x="60" y="60" text-anchor="middle" fill="var(--tx)" font-weight="800" font-size="18">${earned ? pct.toFixed(0) + '%' : '—'}</text><text x="60" y="76" text-anchor="middle" fill="var(--mut)" font-size="10">da renda</text></svg></div>
+<div class="leg">${top.map((r, i) => `<div><i class="dot" style="background:var(--ac);opacity:${1 - i * 0.22}"></i><span>${esc(r[0])}</span><span class="num">${brl(r[1])}</span><span class="mut num">${((r[1] / spent) * 100).toFixed(0)}%</span></div>`).join('')}</div>`
+    : `<div class="empty">Nenhum gasto neste período.<br><button class="btn p" data-add="out">Registrar gasto</button></div>`
+}</div></section>
+<section class="card">${ch('Últimas movimentações')}<div class="cb">
+${
+  last.length
+    ? last.map((t) => `<button class="tx ${t.type}" data-id="${t.id}" aria-label="Excluir ${esc(t.n)}"><span class="av">${esc(t.c[0])}</span><span class="m"><b>${esc(t.n)}</b><span class="mut">${esc(t.c)} · ${dfmt(t.d)}</span></span><b class="num ${t.type === 'in' ? 'pos' : 'neg'}">${t.type === 'in' ? '+' : '−'} ${brl(t.v)}</b></button>`).join('') + '<div class="mut" style="margin-top:8px">Toque em uma movimentação para excluí-la.</div>'
+    : `<div class="empty">Suas movimentações aparecerão aqui.<br><button class="btn p" data-add="in">Registrar ganho</button></div>`
+}</div></section>`;
+    }
+
+    function profile() {
+      return `<header class="wide"><h1><b>Perfil</b></h1></header>
+<section class="card wide"><div class="ch">Aparência</div><div class="cb"><div class="mut">Tema</div><div class="th">${THEMES.map((t) => `<button data-th="${t[0]}" aria-pressed="${S.theme === t[0]}">${t[1]}</button>`).join('')}</div>
+<div class="mut" style="margin-top:16px">Cor de destaque</div><div class="sw">${ACC.map((a) => `<button data-ac="${a[1]}" style="background:${a[1]}" aria-label="${a[0]}" aria-pressed="${S.accent === a[1]}"></button>`).join('')}<input type="color" id="cc" value="${S.accent}" aria-label="Cor personalizada" style="width:44px;height:34px;padding:2px"></div></div></section>
+<section class="card wide"><div class="ch">Conta</div><div class="cb"><label>Nome<input id="nm" value="${esc(S.name)}" maxlength="30"></label>
+<div style="display:flex;gap:10px;margin-top:14px"><button class="btn" id="rst" style="flex:1">Apagar todos os dados</button></div></div></section>`;
+    }
+
+    function stub(t, e) {
+      return `<header class="wide"><h1><b>${t}</b></h1></header><section class="card wide"><div class="cb empty">Este módulo faz parte da ${e} do roadmap e ainda não foi construído.</div></section>`;
+    }
+
+    function render() {
+      theme();
+      $('#app').innerHTML =
+        view === 'home'
+          ? home()
+          : view === 'profile'
+          ? profile()
+          : view === 'stats'
+          ? stub('Estatísticas', 'etapa 5')
+          : stub('Calendário', 'etapa 4');
+
+      const N = [
+        ['home', '⌂', 'Início'],
+        ['stats', '▥', 'Estatísticas'],
+        ['cal', '▦', 'Calendário'],
+        ['profile', '☺', 'Perfil']
+      ];
+      $('#nav').innerHTML = N.map(
+        (n) =>
+          `<button data-v="${n[0]}" ${view === n[0] ? 'aria-current="page"' : ''}><span aria-hidden="true">${n[1]}</span>${n[2]}</button>`
+      ).join('');
+
+      const p = $('#per');
+      if (p) p.value = S.per;
+    }
+
+    /* ==========================================================================
+       5. Modal de Nova Movimentação
+       ========================================================================== */
+    function openForm(type) {
+      const f = $('#f');
+      f.innerHTML = `<h2 id="dt" style="margin:0 0 4px;font-size:1.2rem">Nova movimentação</h2>
+<div class="seg" style="margin-top:10px"><button type="button" data-t="out" aria-pressed="${type === 'out'}">Gasto</button><button type="button" data-t="in" aria-pressed="${type === 'in'}">Ganho</button></div>
+<label>Valor (R$)<input id="fv" inputmode="decimal" placeholder="0,00" required autocomplete="off"></label>
+<label>Descrição<input id="fn" maxlength="60" required placeholder="Ex.: Almoço" autocomplete="off"></label>
+<label>Categoria<select id="fc" style="padding:11px 12px"></select></label>
+<label>Data<input id="fd" type="date" value="${now.toISOString().slice(0, 10)}" required></label>
+<div id="fe" class="neg" role="alert" style="margin-top:8px;font-size:.85rem"></div>
+<div style="display:flex;gap:10px;margin-top:14px"><button type="button" class="btn" id="fx" style="flex:1">Cancelar</button><button class="btn p" style="flex:1">Salvar</button></div>`;
+      f.dataset.type = type;
+      cats();
+      $('#dlg').showModal();
+      setTimeout(() => $('#fv').focus(), 50);
+    }
+
+    function cats() {
+      const t = $('#f').dataset.type;
+      $('#fc').innerHTML = CAT[t].map((c) => `<option>${c}</option>`).join('');
+      $('#f')
+        .querySelectorAll('[data-t]')
+        .forEach((b) => b.setAttribute('aria-pressed', b.dataset.t === t));
+    }
+
+    /* ==========================================================================
+       6. Delegação de Eventos & Inicialização
+       ========================================================================== */
+    document.addEventListener('click', (e) => {
+      const g = (s) => e.target.closest(s);
+      let b;
+
+      if ((b = g('[data-add]'))) return openForm(b.dataset.add);
+      if (g('#fab')) return openForm('out');
+      if ((b = g('[data-v]'))) {
+        view = b.dataset.v;
+        return render();
+      }
+      if (g('#eye')) {
+        S.hide = !S.hide;
+        save();
+        return render();
+      }
+      if ((b = g('[data-th]'))) {
+        S.theme = b.dataset.th;
+        save();
+        return render();
+      }
+      if ((b = g('[data-ac]'))) {
+        S.accent = b.dataset.ac;
+        save();
+        return render();
+      }
+      if ((b = g('[data-t]'))) {
+        $('#f').dataset.type = b.dataset.t;
+        return cats();
+      }
+      if (g('#fx')) return $('#dlg').close();
+
+      if ((b = g('.tx'))) {
+        const t = S.tx.find((x) => x.id == b.dataset.id);
+        if (t && confirm('Excluir "' + t.n + '"?')) {
+          S.tx = S.tx.filter((x) => x !== t);
+          save();
+          render();
+          toast('Movimentação excluída');
+        }
+        return;
+      }
+
+      if (g('#rst') && confirm('Apagar todas as movimentações e preferências?')) {
+        try {
+          localStorage.removeItem(K);
+        } catch (x) {}
+        S.tx = [];
+        save();
+        render();
+        toast('Dados apagados');
+      }
+    });
+
+    document.addEventListener('change', (e) => {
+      if (e.target.id === 'per') {
+        S.per = +e.target.value;
+        save();
+        render();
+      }
+      if (e.target.id === 'cc') {
+        const c = e.target.value;
+        const bg = getComputedStyle(document.documentElement)
+          .getPropertyValue('--bg')
+          .trim();
+        if (
+          bg[0] === '#' &&
+          con(c, bg.length === 4 ? '#' + [...bg.slice(1)].map((x) => x + x).join('') : bg) < 3
+        ) {
+          toast('Contraste insuficiente com este tema. Escolha outra cor.');
+          e.target.value = S.accent;
+          return;
+        }
+        S.accent = c;
+        save();
+        render();
+      }
+      if (e.target.id === 'nm') {
+        S.name = e.target.value.trim() || 'Matheus';
+        save();
+      }
+    });
+
+    $('#f').addEventListener('submit', (e) => {
+      const raw = $('#fv')
+        .value.trim()
+        .replace(/\./g, '')
+        .replace(',', '.');
+      const v = Math.round(parseFloat(raw) * 100);
+      if (!(v > 0)) {
+        e.preventDefault();
+        $('#fe').textContent = 'Informe um valor maior que zero, como 45,50.';
+        return;
+      }
+      S.tx.push({
+        id: Date.now(),
+        type: $('#f').dataset.type,
+        v,
+        n: $('#fn').value.trim(),
+        c: $('#fc').value,
+        d: $('#fd').value
+      });
+      save();
+      render();
+      toast('Movimentação salva');
+    });
+
+    render();
+  </script>
+</body>
+</html>
