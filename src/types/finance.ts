@@ -1,10 +1,58 @@
 /* ==========================================================================
-   types/finance.ts — Contratos de Domínio Financeiro, Pagamentos e Transações
+   types/finance.ts — Contratos de Domínio Financeiro, Categorias, Pagamentos e Transações
    ========================================================================== */
 
 export type Theme = 'oled' | 'white' | 'grey' | 'xp';
 
-export type TransactionType = 'out' | 'in';
+export type TransactionType = 'in' | 'out';
+
+export interface CategoryItem {
+  id: string;
+  name: string;
+  icon: string;
+  isDefault?: boolean;
+}
+
+export interface CategoriesState {
+  in: CategoryItem[];
+  out: CategoryItem[];
+}
+
+export const DEFAULT_CATEGORIES: CategoriesState = {
+  out: [
+    { id: 'out-alimentacao', name: 'Alimentação', icon: '🍽', isDefault: true },
+    { id: 'out-transporte', name: 'Transporte', icon: '🚗', isDefault: true },
+    { id: 'out-moradia', name: 'Moradia', icon: '🏠', isDefault: true },
+    { id: 'out-saude', name: 'Saúde', icon: '💊', isDefault: true },
+    { id: 'out-lazer', name: 'Lazer', icon: '🎉', isDefault: true },
+    { id: 'out-educacao', name: 'Educação', icon: '📚', isDefault: true },
+    { id: 'out-outros', name: 'Outros', icon: '📦', isDefault: true }
+  ],
+  in: [
+    { id: 'in-salario', name: 'Salário', icon: '💼', isDefault: true },
+    { id: 'in-freelance', name: 'Freelance', icon: '💻', isDefault: true },
+    { id: 'in-vendas', name: 'Vendas', icon: '🛒', isDefault: true },
+    { id: 'in-rendimentos', name: 'Rendimentos', icon: '📈', isDefault: true },
+    { id: 'in-outros', name: 'Outros', icon: '📦', isDefault: true }
+  ]
+};
+
+export const cloneDefaultCategories = (): CategoriesState => ({
+  out: DEFAULT_CATEGORIES.out.map((c) => ({ ...c })),
+  in: DEFAULT_CATEGORIES.in.map((c) => ({ ...c }))
+});
+
+export const getCategoryIcon = (
+  cats: CategoriesState,
+  type: TransactionType,
+  categoryName: string
+): string => {
+  const list = cats[type] || [];
+  const found = list.find(
+    (c) => c.name.toLowerCase() === categoryName.toLowerCase() || c.id === categoryName
+  );
+  return found?.icon || '📦';
+};
 
 export type OutCategory =
   | 'Alimentação'
@@ -66,4 +114,5 @@ export interface AppState {
   hide: boolean;
   per: number;
   tx: Transaction[];
+  cats: CategoriesState;
 }

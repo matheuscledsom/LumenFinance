@@ -10,6 +10,8 @@ import {
   addTx,
   updateTx,
   deleteTx,
+  addCategory,
+  removeCategory,
   resetState,
   normalizePay
 } from './state';
@@ -18,7 +20,7 @@ import { lum, con, parseCents } from './utils/currency';
 import { home } from './components/home';
 import { stats } from './components/stats';
 import { calendar } from './components/calendar';
-import { profile } from './components/profile';
+import { profile, profileCatTab, setProfileCatTab } from './components/profile';
 import {
   openForm,
   cats,
@@ -109,6 +111,27 @@ document.addEventListener('click', (e: MouseEvent) => {
   if ((b = g('[data-rm-tag]'))) {
     const tag = b.dataset.rmTag;
     if (tag) removeFormTag(tag);
+    return;
+  }
+
+  if ((b = g('[data-cat-tab]'))) {
+    const nextTab: TransactionType = b.dataset.catTab === 'in' ? 'in' : 'out';
+    setProfileCatTab(nextTab);
+    render();
+    return;
+  }
+
+  if ((b = g('[data-del-cat]'))) {
+    const catId = b.dataset.delCat;
+    const catType: TransactionType = b.dataset.catType === 'in' ? 'in' : 'out';
+    if (catId) {
+      if (removeCategory(catType, catId)) {
+        render();
+        toast('Categoria removida');
+      } else {
+        toast('Não é possível excluir categoria em uso ou padrão única');
+      }
+    }
     return;
   }
 
@@ -224,53 +247,82 @@ document.addEventListener('change', (e: Event) => {
   }
 });
 
-const formEl = $<HTMLFormElement>('#f');
-if (formEl) {
-  formEl.addEventListener('submit', (e: SubmitEvent) => {
-    const fv = $<HTMLInputElement>('#fv');
-    const fn = $<HTMLInputElement>('#fn');
-    const fc = $<HTMLSelectElement>('#fc');
-    const fpay = $<HTMLSelectElement>('#fpay');
-    const fd = $<HTMLInputElement>('#fd');
-    const ftag = $<HTMLInputElement>('#ftag');
-    const fe = $<HTMLElement>('#fe');
+const handleTxFormSubmit = (e: SubmitEvent, formEl: HTMLFormElement): void => {
+  const fv = $<HTMLInputElement>('#fv');
+  const fn = $<HTMLInputElement>('#fn');
+  const fc = $<HTMLSelectElement>('#fc');
+  const fpay = $<HTMLSelectElement>('#fpay');
+  const fd = $<HTMLInputElement>('#fd');
+  const ftag = $<HTMLInputElement>('#ftag');
+  const fe = $<HTMLElement>('#fe');
 
-    const v = parseCents(fv?.value);
-    if (!(v > 0)) {
-      e.preventDefault();
-      if (fe) fe.textContent = 'Informe um valor maior que zero, como 45,50.';
-      return;
-    }
+  const v = parseCents(fv?.value);
+  if (!(v > 0)) {
+    e.preventDefault();
+    if (fe) fe.textContent = 'Informe um valor maior que zero, como 45,50.';
+    return;
+  }
 
-    if (ftag && ftag.value.trim()) {
-      addFormTag(ftag.value);
-      ftag.value = '';
-    }
+  if (ftag && ftag.value.trim()) {
+    addFormTag(ftag.value);
+    ftag.value = '';
+  }
 
-    const txId = formEl.dataset.txId;
-    const updatedFields = {
-      type: (formEl.dataset.type === 'in' ? 'in' : 'out') as TransactionType,
-      v,
-      n: (fn?.value || '').trim(),
-      c: (fc?.value || 'Outros') as Category,
-      d: fd?.value || '',
-      pay: normalizePay(fpay?.value),
-      tags: getFormTags()
-    };
+  const txId = formEl.dataset.txId;
+  const updatedFields = {
+    type: (formEl.dataset.type === 'in' ? 'in' : 'out') as TransactionType,
+    v,
+    n: (fn?.value || '').trim(),
+    c: (fc?.value || 'Outros') as Category,
+    d: fd?.value || '',
+    pay: normalizePay(fpay?.value),
+    tags: getFormTags()
+  };
 
-    if (txId) {
-      updateTx(txId, updatedFields);
-      delete formEl.dataset.txId;
+  if (txId) {
+    updateTx(txId, updatedFields);
+    delete formEl.dataset.txId;
+    render();
+    toast('Movimentação atualizada');
+  } else {
+    addTx({
+      id: crypto.randomUUID(),
+      ...updatedFields
+    });
+    render();
+    toast('Movimentação salva');
+  }
+};
+
+document.addEventListener('submit', (e: SubmitEvent) => {
+  const target = e.target as HTMLFormElement | null;
+  if (!target) return;
+
+  if (target.id === 'fcat') {
+    e.preventDefault();
+    const nameInput = $<HTMLInputElement>('#fcat-name');
+    const iconInput = $<HTMLInputElement>('#fcat-icon');
+    const name = nameInput?.value || '';
+    const icon = iconInput?.value || '🏷';
+    if (addCategory(profileCatTab, name, icon)) {
       render();
-      toast('Movimentação atualizada');
+      toast('Categoria adicionada');
     } else {
-      addTx({
-        id: crypto.randomUUID(),
-        ...updatedFields
-      });
-      render();
-      toast('Movimentação salva');
+      toast('Categoria inválida ou já existente');
     }
+    return;
+  }
+
+  if (target.id === 'f') {
+    handleTxFormSubmit(e, target);
+  }
+});
+
+const formEl = $<HTMLFormElement>('#f');
+if (formEl && typeof formEl.addEventListener === 'function') {
+  formEl.addEventListener('submit', (e: SubmitEvent) => {
+    if (e.target && (e.target as HTMLElement).id === 'f') return;
+    handleTxFormSubmit(e, formEl);
   });
 }
 

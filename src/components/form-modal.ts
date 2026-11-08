@@ -2,13 +2,14 @@
    form-modal.ts — Modal de Criação e Edição de Movimentações com Validações
    ========================================================================== */
 
-import { S, CAT, normalizePay, normalizeTag, normalizeTags } from '../state';
+import { S, normalizePay, normalizeTag, normalizeTags } from '../state';
 import {
   PAYMENT_METHODS,
   type Category,
   type PaymentMethod,
   type TransactionType
 } from '../types/finance';
+import { guessCategory } from '../utils/category-guesser';
 import { esc } from '../utils/currency';
 import { now } from '../utils/date';
 
@@ -19,6 +20,11 @@ const $ = <T extends Element = HTMLElement>(s: string): T | null =>
  * Estado local de tags ativas no modal de criação/edição.
  */
 let currentTags: string[] = [];
+
+/**
+ * Indica se o usuário já alterou manualmente o seletor de categoria na sessão atual do modal.
+ */
+let categoryManuallyChanged = false;
 
 /**
  * Retorna uma cópia das tags atualmente registradas no formulário.
@@ -73,21 +79,37 @@ export function removeFormTag(tag: string): void {
 }
 
 /**
- * Atualiza as opções de categoria e estado dos botões de tipo (Gasto/Ganho).
+ * Atualiza as opções de categoria de S.cats[type] com ícone e nome formatados,
+ * além do estado dos botões de tipo (Gasto/Ganho).
  */
 export function cats(selectedCat?: Category): void {
   const f = $<HTMLFormElement>('#f');
   if (!f) return;
   const t = (f.dataset.type === 'in' ? 'in' : 'out') as TransactionType;
   const fc = $<HTMLSelectElement>('#fc');
-  if (fc && CAT[t]) {
+  const list = S.cats[t] || [];
+
+  if (fc && list.length > 0) {
     const current = selectedCat ?? fc.value;
-    fc.innerHTML = CAT[t]
+    const hasMatch = list.some((c) => c.name === current || c.id === current);
+    const activeCatName = hasMatch
+      ? list.find((c) => c.name === current || c.id === current)?.name ?? list[0].name
+      : selectedCat || list[0].name;
+
+    const options = [...list];
+    if (selectedCat && !hasMatch) {
+      options.push({ id: `legacy-${selectedCat}`, name: selectedCat, icon: '📦' });
+    }
+
+    fc.innerHTML = options
       .map(
-        (c) => `<option value="${esc(c)}"${c === current ? ' selected' : ''}>${esc(c)}</option>`
+        (c) =>
+          `<option value="${esc(c.name)}"${c.name === activeCatName ? ' selected' : ''}>${esc(c.icon)} ${esc(c.name)}</option>`
       )
       .join('');
+    fc.value = activeCatName;
   }
+
   f.querySelectorAll<HTMLButtonElement>('[data-t]').forEach((b) =>
     b.setAttribute('aria-pressed', String(b.dataset.t === t))
   );
@@ -108,6 +130,7 @@ export function openForm(type: TransactionType, txId: string | null = null): voi
   const dateStr = tx ? tx.d : now.toISOString().slice(0, 10);
 
   currentTags = tx ? normalizeTags(tx.tags) : [];
+  categoryManuallyChanged = Boolean(tx);
 
   const payOptions = PAYMENT_METHODS.map(
     (p) =>
@@ -138,6 +161,31 @@ export function openForm(type: TransactionType, txId: string | null = null): voi
 
   cats(tx ? tx.c : undefined);
   renderFormTags();
+
+  const fc = $<HTMLSelectElement>('#fc');
+  if (fc && typeof fc.addEventListener === 'function') {
+    fc.addEventListener('change', () => {
+      categoryManuallyChanged = true;
+    });
+  }
+
+  const fn = $<HTMLInputElement>('#fn');
+  if (fn && typeof fn.addEventListener === 'function') {
+    fn.addEventListener('input', () => {
+      if (categoryManuallyChanged) return;
+      const currentType = (f.dataset.type === 'in' ? 'in' : 'out') as TransactionType;
+      const available = S.cats[currentType] || [];
+      const guessed = guessCategory(fn.value, available);
+      const selectEl = $<HTMLSelectElement>('#fc');
+      if (guessed && selectEl && selectEl.value !== guessed.name) {
+        selectEl.value = guessed.name;
+        if (selectEl.classList) {
+          selectEl.classList.remove('cat-auto');
+          selectEl.classList.add('cat-auto');
+        }
+      }
+    });
+  }
 
   const ftag = $<HTMLInputElement>('#ftag');
   if (ftag && typeof ftag.addEventListener === 'function') {

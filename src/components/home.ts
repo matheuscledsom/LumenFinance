@@ -3,7 +3,7 @@
    ========================================================================== */
 
 import { S, normalizePay, normalizeTags } from '../state';
-import { getPaymentLabel } from '../types/finance';
+import { getCategoryIcon, getPaymentLabel } from '../types/finance';
 import { brl, esc, sum } from '../utils/currency';
 import { now, cur, ym, prevM, dfmt } from '../utils/date';
 
@@ -75,13 +75,14 @@ ${
   last.length
     ? last
         .map((t) => {
+          const icon = getCategoryIcon(S.cats, t.type, t.c);
           const payLabel = getPaymentLabel(normalizePay(t.pay));
           const tags = normalizeTags(t.tags);
           const tagsHtml = tags
             .map((tag) => `<span class="pill-tag">#${esc(tag)}</span>`)
             .join('');
           const payAndTags = `<span class="tx-meta"><span class="mut">${esc(payLabel)}${tags.length ? ' · ' : ''}</span>${tagsHtml}</span>`;
-          return `<button class="tx ${t.type}" data-id="${esc(t.id)}" aria-label="Editar ${esc(t.n)}"><span class="av">${esc(t.c[0] || '?')}</span><span class="m"><b>${esc(t.n)}</b><span class="mut">${esc(t.c)} · ${dfmt(t.d)}</span>${payAndTags}</span><b class="num ${t.type === 'in' ? 'pos' : 'neg'}">${t.type === 'in' ? '+' : '−'} ${brl(t.v)}</b></button>`;
+          return `<button class="tx ${t.type}" data-id="${esc(t.id)}" aria-label="Editar ${esc(t.n)}"><span class="av">${esc(icon)}</span><span class="m"><b>${esc(t.n)}</b><span class="mut">${esc(t.c)} · ${dfmt(t.d)}</span>${payAndTags}</span><b class="num ${t.type === 'in' ? 'pos' : 'neg'}">${t.type === 'in' ? '+' : '−'} ${brl(t.v)}</b></button>`;
         })
         .join('') + '<div class="mut" style="margin-top:8px">Toque em uma movimentação para editá-la.</div>'
     : `<div class="empty">Suas movimentações aparecerão aqui.<br><button class="btn p" data-add="in">Registrar ganho</button></div>`

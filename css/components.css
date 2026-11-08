@@ -109,6 +109,63 @@
   background: color-mix(in srgb, var(--neg) 18%, transparent);
 }
 
+.cat-manage-list {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.cat-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--bd);
+  background: var(--bg);
+}
+
+.cat-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cat-ico {
+  font-size: 1.15rem;
+}
+
+.cat-del {
+  width: 32px;
+  height: 32px;
+  font-size: 1rem;
+  color: var(--mut);
+}
+
+.cat-del:hover,
+.cat-del:focus-visible {
+  color: var(--neg);
+  border-color: var(--neg);
+}
+
+.cat-form {
+  display: grid;
+  grid-template-columns: 58px 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.cat-icon-input {
+  text-align: center;
+  padding: 11px 6px;
+}
+
+select.cat-auto {
+  border-color: var(--ac);
+}
+
 .btn {
   min-height: 52px;
   border-radius: var(--r);
@@ -389,13 +446,19 @@ input {
   color: var(--neg);
 }
 
+[data-theme="xp"] .cat-item {
+  border-radius: 4px;
+  border-color: #7f9db9;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .card {
     transition: border-color .2s;
   }
 
   .pill-tag,
-  .pill-del {
+  .pill-del,
+  select {
     transition: background-color .15s, border-color .15s, color .15s, transform .15s;
   }
 }
