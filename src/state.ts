@@ -1,5 +1,5 @@
 /* ==========================================================================
-   state.ts — Estado Central (S), Persistência (save/get), Categorias e Migrações
+   state.ts — Estado Central (S), Persistência (save/get), Categorias, Orçamentos e Migrações
    ========================================================================== */
 
 import {
@@ -7,8 +7,10 @@ import {
   cloneDefaultCategories,
   isValidPaymentMethod,
   type AppState,
+  type BudgetProgress,
   type CategoriesState,
   type Category,
+  type CategoryBudget,
   type CategoryItem,
   type PaymentMethod,
   type Theme,
@@ -118,6 +120,34 @@ export const normalizeCategoriesState = (rawCats: unknown): CategoriesState => {
   };
 };
 
+/**
+ * Normaliza o mapa de orçamentos por categoria garantindo valores inteiros positivos em centavos.
+ */
+export const normalizeBudgets = (
+  rawBudgets: unknown
+): Record<string, CategoryBudget> => {
+  if (!rawBudgets || typeof rawBudgets !== 'object' || Array.isArray(rawBudgets)) {
+    return {};
+  }
+  const out: Record<string, CategoryBudget> = {};
+  for (const [key, val] of Object.entries(rawBudgets as Record<string, unknown>)) {
+    if (!key) continue;
+    if (val && typeof val === 'object') {
+      const rec = val as Record<string, unknown>;
+      const limit =
+        typeof rec.limitCents === 'number'
+          ? Math.round(rec.limitCents)
+          : Number(rec.limitCents) || 0;
+      if (limit > 0) {
+        out[key] = { limitCents: limit };
+      }
+    } else if (typeof val === 'number' && val > 0) {
+      out[key] = { limitCents: Math.round(val) };
+    }
+  }
+  return out;
+};
+
 const defaultTheme = (): Theme =>
   typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: light)').matches
     ? 'white'
@@ -130,7 +160,9 @@ export const S: AppState = {
   hide: false,
   per: 0,
   tx: [],
-  cats: cloneDefaultCategories()
+  cats: cloneDefaultCategories(),
+  budgets: {},
+  goalCents: 0
 };
 
 export let view: ViewName = 'home';
@@ -143,7 +175,13 @@ export const setView = (v: ViewName): void => {
  * Executa migrações de versão do schema mantendo compatibilidade retroativa.
  */
 export const migrate = (raw: unknown): Partial<AppState> => {
-  if (!raw || typeof raw !== 'object') return { cats: cloneDefaultCategories() };
+  if (!raw || typeof raw !== 'object') {
+    return {
+      cats: cloneDefaultCategories(),
+      budgets: {},
+      goalCents: 0
+    };
+  }
   const data = raw as Record<string, unknown>;
   const rawTx = Array.isArray(data.tx) ? data.tx : [];
   const tx: Transaction[] = rawTx
@@ -160,8 +198,13 @@ export const migrate = (raw: unknown): Partial<AppState> => {
     }));
 
   const cats = normalizeCategoriesState(data.cats);
+  const budgets = normalizeBudgets(data.budgets);
+  const goalCents =
+    typeof data.goalCents === 'number' && data.goalCents > 0
+      ? Math.round(data.goalCents)
+      : 0;
 
-  const result: Partial<AppState> = { tx, cats };
+  const result: Partial<AppState> = { tx, cats, budgets, goalCents };
   if (typeof data.name === 'string') result.name = data.name;
   if (
     data.theme === 'oled' ||
@@ -187,6 +230,8 @@ export const get = (): AppState => {
     Object.assign(S, migrate(raw));
   } catch (e) {
     S.cats = cloneDefaultCategories();
+    S.budgets = {};
+    S.goalCents = 0;
   }
   return S;
 };
@@ -231,7 +276,7 @@ export const addCategory = (
 
 /**
  * Remove uma categoria pelo id (ou nome), bloqueando exclusão se houver transações
- * atreladas ou se for a única categoria default restante.
+ * atreladas ou se for a única categoria default restante. Limpa orçamentos órfãos.
  */
 export const removeCategory = (type: TransactionType, id: string): boolean => {
   if (type !== 'in' && type !== 'out') return false;
@@ -256,8 +301,124 @@ export const removeCategory = (type: TransactionType, id: string): boolean => {
   }
 
   S.cats[type] = list.filter((c) => c.id !== target.id);
+  delete S.budgets[target.id];
+  delete S.budgets[target.name];
+  delete S.budgets[target.name.toLowerCase()];
   save();
   return true;
+};
+
+/**
+ * Define ou atualiza o teto de orçamento mensal (em centavos) para uma categoria.
+ */
+export const setCategoryBudget = (categoryId: string, limitCents: number): void => {
+  const rawKey = categoryId.trim();
+  if (!rawKey) return;
+
+  const matchedCat = S.cats.out.find(
+    (c) => c.id === rawKey || c.name.toLowerCase() === rawKey.toLowerCase()
+  );
+  const key = matchedCat ? matchedCat.id : rawKey;
+
+  if (!(limitCents > 0)) {
+    removeCategoryBudget(rawKey);
+    return;
+  }
+
+  if (matchedCat) {
+    delete S.budgets[matchedCat.name];
+    delete S.budgets[matchedCat.name.toLowerCase()];
+  }
+  S.budgets[key] = { limitCents: Math.round(limitCents) };
+  save();
+};
+
+/**
+ * Remove o orçamento mensal configurado para uma categoria.
+ */
+export const removeCategoryBudget = (categoryId: string): void => {
+  const rawKey = categoryId.trim();
+  if (!rawKey) return;
+
+  const matchedCat = S.cats.out.find(
+    (c) => c.id === rawKey || c.name.toLowerCase() === rawKey.toLowerCase()
+  );
+
+  delete S.budgets[rawKey];
+  delete S.budgets[rawKey.toLowerCase()];
+  if (matchedCat) {
+    delete S.budgets[matchedCat.id];
+    delete S.budgets[matchedCat.name];
+    delete S.budgets[matchedCat.name.toLowerCase()];
+  }
+  save();
+};
+
+/**
+ * Define a meta mensal de economia líquida em centavos.
+ */
+export const setSavingsGoal = (goalCents: number): void => {
+  S.goalCents = goalCents > 0 ? Math.round(goalCents) : 0;
+  save();
+};
+
+/**
+ * Calcula o progresso de gastos acumulados por categoria orçada no mês (YYYY-MM).
+ */
+export const getCategoryBudgetsProgress = (monthYear: string): BudgetProgress[] => {
+  const monthOut = S.tx.filter(
+    (t) => t.type === 'out' && t.d.slice(0, 7) === monthYear
+  );
+
+  const progresses: BudgetProgress[] = [];
+  const handledKeys = new Set<string>();
+
+  for (const cat of S.cats.out) {
+    const budget =
+      S.budgets[cat.id] ||
+      S.budgets[cat.name] ||
+      S.budgets[cat.name.toLowerCase()];
+    if (!budget || !(budget.limitCents > 0)) continue;
+
+    handledKeys.add(cat.id);
+    handledKeys.add(cat.name);
+    handledKeys.add(cat.name.toLowerCase());
+
+    const spentCents = monthOut
+      .filter(
+        (t) =>
+          t.c.toLowerCase() === cat.name.toLowerCase() || t.c === cat.id
+      )
+      .reduce((acc, t) => acc + t.v, 0);
+
+    const percentage = (spentCents / budget.limitCents) * 100;
+    progresses.push({
+      categoryId: cat.id,
+      categoryName: cat.name,
+      spentCents,
+      limitCents: budget.limitCents,
+      percentage,
+      isOverBudget: spentCents > budget.limitCents
+    });
+  }
+
+  for (const [key, budget] of Object.entries(S.budgets)) {
+    if (handledKeys.has(key) || !(budget.limitCents > 0)) continue;
+    const spentCents = monthOut
+      .filter((t) => t.c.toLowerCase() === key.toLowerCase() || t.c === key)
+      .reduce((acc, t) => acc + t.v, 0);
+    const percentage = (spentCents / budget.limitCents) * 100;
+    progresses.push({
+      categoryId: key,
+      categoryName: key,
+      spentCents,
+      limitCents: budget.limitCents,
+      percentage,
+      isOverBudget: spentCents > budget.limitCents
+    });
+  }
+
+  return progresses;
 };
 
 export type CreateTxInput = Omit<Transaction, 'id' | 'pay' | 'tags'> & {
@@ -313,7 +474,7 @@ export const deleteTx = (id: string): void => {
 };
 
 /**
- * Limpa todas as movimentações, restaura categorias padrão e persiste no localStorage.
+ * Limpa todas as movimentações, restaura categorias, orçamentos e metas no localStorage.
  */
 export const resetState = (): void => {
   try {
@@ -321,6 +482,8 @@ export const resetState = (): void => {
   } catch (x) {}
   S.tx = [];
   S.cats = cloneDefaultCategories();
+  S.budgets = {};
+  S.goalCents = 0;
   save();
 };
 

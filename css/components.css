@@ -205,18 +205,120 @@ select {
 
 .leg {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--bd);
 }
 
-.leg div {
+.leg-item {
+  display: grid;
+  gap: 5px;
+}
+
+.leg-row {
   display: grid;
   grid-template-columns: 14px 1fr auto 44px;
   gap: 10px;
   align-items: center;
   font-size: .9rem;
+}
+
+.leg-budget {
+  padding-left: 24px;
+  display: grid;
+  gap: 4px;
+}
+
+.leg-budget-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: .78rem;
+}
+
+.badge-over {
+  padding: 1px 8px;
+  font-size: .7rem;
+  border-color: var(--neg);
+}
+
+.prog-track {
+  width: 100%;
+  height: 7px;
+  border-radius: 99px;
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  overflow: hidden;
+}
+
+.prog-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: var(--ac);
+}
+
+.prog-fill.neg-bg {
+  background: var(--neg);
+}
+
+.prog-fill.pos-bg {
+  background: var(--pos);
+}
+
+.goal-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: .9rem;
+}
+
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--ac);
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.goal-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.budget-list {
+  display: grid;
+  gap: 8px;
+}
+
+.budget-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--bd);
+  background: var(--bg);
+}
+
+.budget-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.budget-input {
+  width: 128px;
+  padding: 8px 10px;
+  text-align: right;
+  background: var(--card);
 }
 
 .dot {
@@ -446,9 +548,20 @@ input {
   color: var(--neg);
 }
 
-[data-theme="xp"] .cat-item {
+[data-theme="xp"] .cat-item,
+[data-theme="xp"] .budget-row {
   border-radius: 4px;
   border-color: #7f9db9;
+}
+
+[data-theme="xp"] .prog-track {
+  border-radius: 3px;
+  border-color: #7f9db9;
+  background: #fff;
+}
+
+[data-theme="xp"] .prog-fill {
+  border-radius: 2px;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -460,5 +573,9 @@ input {
   .pill-del,
   select {
     transition: background-color .15s, border-color .15s, color .15s, transform .15s;
+  }
+
+  .prog-fill {
+    transition: width .25s ease, background-color .2s;
   }
 }

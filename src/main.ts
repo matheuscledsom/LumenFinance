@@ -12,6 +12,10 @@ import {
   deleteTx,
   addCategory,
   removeCategory,
+  setCategoryBudget,
+  removeCategoryBudget,
+  setSavingsGoal,
+  getCategoryBudgetsProgress,
   resetState,
   normalizePay
 } from './state';
@@ -135,6 +139,32 @@ document.addEventListener('click', (e: MouseEvent) => {
     return;
   }
 
+  if ((b = g('[data-clear-budget]'))) {
+    const catId = b.dataset.clearBudget;
+    if (catId) {
+      removeCategoryBudget(catId);
+      render();
+      toast('Orçamento removido');
+    }
+    return;
+  }
+
+  if (g('#fgoal-save')) {
+    const goalInput = $<HTMLInputElement>('#fgoal');
+    const cents = parseCents(goalInput?.value);
+    setSavingsGoal(cents > 0 ? cents : 0);
+    render();
+    toast(cents > 0 ? 'Meta de economia atualizada' : 'Meta de economia removida');
+    return;
+  }
+
+  if (g('#fgoal-clear')) {
+    setSavingsGoal(0);
+    render();
+    toast('Meta de economia removida');
+    return;
+  }
+
   if ((b = g('[data-add]'))) {
     const addType: TransactionType = b.dataset.add === 'in' ? 'in' : 'out';
     openForm(addType);
@@ -223,6 +253,7 @@ document.addEventListener('change', (e: Event) => {
     S.per = +target.value;
     save();
     render();
+    return;
   }
   if (target.id === 'cc') {
     const c = target.value;
@@ -240,10 +271,32 @@ document.addEventListener('change', (e: Event) => {
     S.accent = c;
     save();
     render();
+    return;
   }
   if (target.id === 'nm') {
     S.name = target.value.trim() || 'Matheus';
     save();
+    return;
+  }
+  if (target.id === 'fgoal') {
+    const cents = parseCents(target.value);
+    setSavingsGoal(cents > 0 ? cents : 0);
+    render();
+    toast(cents > 0 ? 'Meta de economia atualizada' : 'Meta de economia removida');
+    return;
+  }
+  if (target.dataset && target.dataset.budgetInput) {
+    const catId = target.dataset.budgetInput;
+    const cents = parseCents(target.value);
+    if (cents > 0) {
+      setCategoryBudget(catId, cents);
+      render();
+      toast('Orçamento atualizado');
+    } else {
+      removeCategoryBudget(catId);
+      render();
+      toast('Orçamento removido');
+    }
   }
 });
 
@@ -282,16 +335,30 @@ const handleTxFormSubmit = (e: SubmitEvent, formEl: HTMLFormElement): void => {
   if (txId) {
     updateTx(txId, updatedFields);
     delete formEl.dataset.txId;
-    render();
-    toast('Movimentação atualizada');
   } else {
     addTx({
       id: crypto.randomUUID(),
       ...updatedFields
     });
-    render();
-    toast('Movimentação salva');
   }
+
+  render();
+
+  if (updatedFields.type === 'out' && updatedFields.d) {
+    const txMonth = updatedFields.d.slice(0, 7);
+    const progresses = getCategoryBudgetsProgress(txMonth);
+    const catProg = progresses.find(
+      (p) =>
+        p.categoryName.toLowerCase() === updatedFields.c.toLowerCase() ||
+        p.categoryId === updatedFields.c
+    );
+    if (catProg && catProg.isOverBudget) {
+      toast(`Atenção: Limite mensal de ${catProg.categoryName} ultrapassado!`);
+      return;
+    }
+  }
+
+  toast(txId ? 'Movimentação atualizada' : 'Movimentação salva');
 };
 
 document.addEventListener('submit', (e: SubmitEvent) => {

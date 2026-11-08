@@ -1,8 +1,8 @@
 /* ==========================================================================
-   home.ts — Tela Inicial: Saldo, Resumo de Gastos e Últimas Movimentações
+   home.ts — Tela Inicial: Saldo, Meta de Economia, Gastos, Orçamentos e Movimentações
    ========================================================================== */
 
-import { S, normalizePay, normalizeTags } from '../state';
+import { S, getCategoryBudgetsProgress, normalizePay, normalizeTags } from '../state';
 import { getCategoryIcon, getPaymentLabel } from '../types/finance';
 import { brl, esc, sum } from '../utils/currency';
 import { now, cur, ym, prevM, dfmt } from '../utils/date';
@@ -22,6 +22,7 @@ export function home(): string {
 
   const spent = out.reduce((a, t) => a + t.v, 0);
   const earned = inc.reduce((a, t) => a + t.v, 0);
+  const netMonth = earned - spent;
   const pspent = A.filter((t) => t.type === 'out' && ym(t.d) === pm).reduce(
     (a, t) => a + t.v,
     0
@@ -30,26 +31,48 @@ export function home(): string {
   const sv = pspent ? ((spent - pspent) / pspent) * 100 : null;
   const pct = earned ? Math.min(100, (spent / earned) * 100) : 0;
 
+  const budgetProgresses = getCategoryBudgetsProgress(m);
+
   const by: Record<string, number> = {};
   out.forEach((t) => {
     by[t.c] = (by[t.c] || 0) + t.v;
   });
+  for (const bp of budgetProgresses) {
+    if (!(bp.categoryName in by)) {
+      by[bp.categoryName] = bp.spentCents;
+    }
+  }
+
   const rows: [string, number][] = Object.entries(by).sort((a, b) => b[1] - a[1]);
   const top: [string, number][] = rows.slice(0, 3);
-  const rest = rows.slice(3).reduce((a, r) => a + r[1], 0);
+  const remaining = rows.slice(3);
+  let rest = 0;
+  for (const r of remaining) {
+    const hasBudget = budgetProgresses.some(
+      (b) => b.categoryName.toLowerCase() === r[0].toLowerCase()
+    );
+    if (hasBudget) {
+      top.push(r);
+    } else {
+      rest += r[1];
+    }
+  }
   if (rest) top.push(['Outros', rest]);
 
   const R = 44;
   const C = 2 * Math.PI * R;
   let off = 0;
-  const arcs = top
-    .map((r, i) => {
-      const f = r[1] / spent;
-      const s = `<circle r="${R}" cx="60" cy="60" fill="none" stroke="var(--ac)" stroke-opacity="${1 - i * 0.22}" stroke-width="14" stroke-dasharray="${f * C} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 60 60)"/>`;
-      off += f * C;
-      return s;
-    })
-    .join('');
+  const arcs = spent
+    ? top
+        .filter((r) => r[1] > 0)
+        .map((r, i) => {
+          const f = r[1] / spent;
+          const s = `<circle r="${R}" cx="60" cy="60" fill="none" stroke="var(--ac)" stroke-opacity="${Math.max(0.2, 1 - i * 0.22)}" stroke-width="14" stroke-dasharray="${f * C} ${C}" stroke-dashoffset="${-off}" transform="rotate(-90 60 60)"/>`;
+          off += f * C;
+          return s;
+        })
+        .join('')
+    : '';
 
   const last = [...A]
     .reverse()
@@ -57,17 +80,41 @@ export function home(): string {
     .slice(0, 6);
   const ch = (t: string, r = ''): string => `<div class="ch"><span>${t}</span>${r}</div>`;
 
+  const savedCents = Math.max(0, netMonth);
+  const goalPct = S.goalCents > 0 ? Math.max(0, (savedCents / S.goalCents) * 100) : 0;
+  const goalBarWidth = Math.min(100, goalPct).toFixed(0);
+
+  const goalCardHtml =
+    S.goalCents > 0
+      ? `<section class="card wide">${ch('Meta de economia mensal', `<span class="pill ${goalPct >= 100 ? 'pos' : ''}">${goalPct.toFixed(0)}%</span>`)}<div class="cb"><div class="goal-summary"><b>${brl(savedCents)} de ${brl(S.goalCents)} economizados · ${goalPct.toFixed(0)}%</b><span class="mut">Saldo líquido do mês: <b class="${netMonth >= 0 ? 'pos' : 'neg'}">${brl(netMonth)}</b></span></div><div class="prog-track" role="progressbar" aria-valuenow="${goalPct.toFixed(0)}" aria-valuemin="0" aria-valuemax="100"><div class="prog-fill ${goalPct >= 100 ? 'pos-bg' : ''}" style="width:${goalBarWidth}%"></div></div></div></section>`
+      : `<section class="card wide">${ch('Meta de economia mensal')}<div class="cb"><div class="goal-summary"><span class="mut">Saldo líquido do mês: <b class="${netMonth >= 0 ? 'pos' : 'neg'}">${brl(netMonth)}</b> · Defina uma meta mensal no seu <button type="button" class="link-btn" data-v="profile">Perfil</button>.</span></div></div></section>`;
+
+  const legItemsHtml = top
+    .map((r, i) => {
+      const sharePct = spent > 0 ? ((r[1] / spent) * 100).toFixed(0) : '0';
+      const bp = budgetProgresses.find(
+        (b) =>
+          b.categoryName.toLowerCase() === r[0].toLowerCase() || b.categoryId === r[0]
+      );
+      const budgetBarHtml = bp
+        ? `<div class="leg-budget"><div class="leg-budget-head"><span class="mut ${bp.isOverBudget ? 'neg' : ''}">Orçamento: ${brl(bp.spentCents)} / ${brl(bp.limitCents)} (${bp.percentage.toFixed(0)}%)</span>${bp.isOverBudget ? '<span class="pill neg badge-over">Limite estourado</span>' : ''}</div><div class="prog-track" role="progressbar" aria-valuenow="${bp.percentage.toFixed(0)}" aria-valuemin="0" aria-valuemax="100"><div class="prog-fill ${bp.isOverBudget ? 'neg-bg' : ''}" style="width:${Math.min(100, Math.max(0, bp.percentage)).toFixed(0)}%"></div></div></div>`
+        : '';
+      return `<div class="leg-item"><div class="leg-row"><i class="dot" style="background:var(--ac);opacity:${Math.max(0.2, 1 - i * 0.22)}"></i><span>${esc(r[0])}</span><span class="num">${brl(r[1])}</span><span class="mut num">${sharePct}%</span></div>${budgetBarHtml}</div>`;
+    })
+    .join('');
+
   return `<header class="wide"><h1>Olá, <b>${esc(S.name)}</b><div class="mut" style="font-size:.8rem;font-weight:500">${now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</div></h1>
 <div style="display:flex;gap:8px"><button class="ib" id="eye" aria-label="${S.hide ? 'Mostrar' : 'Ocultar'} valores" aria-pressed="${S.hide}">${S.hide ? '🙈' : '👁'}</button><button class="ib" data-v="profile" aria-label="Configurações">⚙</button></div></header>
 <section class="card bal wide">${ch('Saldo total')}<div class="cb"><div class="big num">${brl(bal)}</div>
 <span class="pill ${chg == null ? '' : chg >= 0 ? 'pos' : 'neg'}">${chg == null ? 'Sem mês anterior para comparar' : (chg >= 0 ? '↑ +' : '↓ ') + chg.toFixed(0) + '% vs. mês passado'}</span></div></section>
 <div class="acts wide"><button class="btn" data-add="out">− Registrar gasto</button><button class="btn p" data-add="in">+ Registrar ganho</button></div>
+${goalCardHtml}
 <section class="card">${ch('Seus gastos', `<select id="per" aria-label="Período"><option value="0">Este mês</option><option value="1">Mês passado</option></select>`)}<div class="cb">
 ${
-  spent
+  spent || budgetProgresses.length
     ? `<div class="spend"><div><div class="big num" style="font-size:1.8rem">${brl(spent)}</div><div class="mut">Total de gastos</div>${sv == null ? '' : `<div class="${sv <= 0 ? 'pos' : 'neg'}" style="margin-top:8px;font-weight:700">${sv <= 0 ? '↓' : '↑'} ${Math.abs(sv).toFixed(0)}% <span class="mut">vs. mês anterior</span></div>`}</div>
 <svg width="120" height="120" viewBox="0 0 120 120" role="img" aria-label="${pct.toFixed(0)}% da renda gasta"><circle r="${R}" cx="60" cy="60" fill="none" stroke="var(--bd)" stroke-width="14"/>${arcs}<text x="60" y="60" text-anchor="middle" fill="var(--tx)" font-weight="800" font-size="18">${earned ? pct.toFixed(0) + '%' : '—'}</text><text x="60" y="76" text-anchor="middle" fill="var(--mut)" font-size="10">da renda</text></svg></div>
-<div class="leg">${top.map((r, i) => `<div><i class="dot" style="background:var(--ac);opacity:${1 - i * 0.22}"></i><span>${esc(r[0])}</span><span class="num">${brl(r[1])}</span><span class="mut num">${((r[1] / spent) * 100).toFixed(0)}%</span></div>`).join('')}</div>`
+<div class="leg">${legItemsHtml}</div>`
     : `<div class="empty">Nenhum gasto neste período.<br><button class="btn p" data-add="out">Registrar gasto</button></div>`
 }</div></section>
 <section class="card">${ch('Últimas movimentações')}<div class="cb">

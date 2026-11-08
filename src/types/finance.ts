@@ -1,5 +1,5 @@
 /* ==========================================================================
-   types/finance.ts — Contratos de Domínio Financeiro, Categorias, Pagamentos e Transações
+   types/finance.ts — Contratos de Domínio Financeiro, Categorias, Orçamentos e Transações
    ========================================================================== */
 
 export type Theme = 'oled' | 'white' | 'grey' | 'xp';
@@ -16,6 +16,19 @@ export interface CategoryItem {
 export interface CategoriesState {
   in: CategoryItem[];
   out: CategoryItem[];
+}
+
+export interface CategoryBudget {
+  limitCents: number;
+}
+
+export interface BudgetProgress {
+  categoryId: string;
+  categoryName: string;
+  spentCents: number;
+  limitCents: number;
+  percentage: number;
+  isOverBudget: boolean;
 }
 
 export const DEFAULT_CATEGORIES: CategoriesState = {
@@ -115,4 +128,6 @@ export interface AppState {
   per: number;
   tx: Transaction[];
   cats: CategoriesState;
+  budgets: Record<string, CategoryBudget>;
+  goalCents: number;
 }
