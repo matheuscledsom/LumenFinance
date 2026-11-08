@@ -1,41 +1,45 @@
 /* ==========================================================================
-   form-modal.js — Modal de Criação e Edição de Movimentações com Validações
+   form-modal.ts — Modal de Criação e Edição de Movimentações com Validações
    ========================================================================== */
 
-import { S, CAT } from '../state.js';
-import { esc } from '../utils/currency.js';
-import { now } from '../utils/date.js';
+import { S, CAT } from '../state';
+import type { Category, TransactionType } from '../types/index';
+import { esc } from '../utils/currency';
+import { now } from '../utils/date';
 
-const $ = (s) => document.querySelector(s);
+const $ = <T extends Element = HTMLElement>(s: string): T | null =>
+  document.querySelector<T>(s);
 
 /**
  * Atualiza as opções de categoria e estado dos botões de tipo (Gasto/Ganho).
  */
-export function cats(selectedCat) {
-  const f = $('#f');
+export function cats(selectedCat?: Category): void {
+  const f = $<HTMLFormElement>('#f');
   if (!f) return;
-  const t = f.dataset.type;
-  const fc = $('#fc');
+  const t = (f.dataset.type === 'in' ? 'in' : 'out') as TransactionType;
+  const fc = $<HTMLSelectElement>('#fc');
   if (fc && CAT[t]) {
     const current = selectedCat ?? fc.value;
     fc.innerHTML = CAT[t]
-      .map((c) => `<option value="${esc(c)}"${c === current ? ' selected' : ''}>${esc(c)}</option>`)
+      .map(
+        (c) => `<option value="${esc(c)}"${c === current ? ' selected' : ''}>${esc(c)}</option>`
+      )
       .join('');
   }
-  f.querySelectorAll('[data-t]').forEach((b) =>
-    b.setAttribute('aria-pressed', b.dataset.t === t)
+  f.querySelectorAll<HTMLButtonElement>('[data-t]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(b.dataset.t === t))
   );
 }
 
 /**
  * Abre o modal de movimentação para criação (txId = null) ou edição (txId fornecido).
  */
-export function openForm(type, txId = null) {
-  const f = $('#f');
+export function openForm(type: TransactionType, txId: string | null = null): void {
+  const f = $<HTMLFormElement>('#f');
   if (!f) return;
 
   const tx = txId != null ? S.tx.find((x) => String(x.id) === String(txId)) : null;
-  const activeType = tx ? tx.type : type;
+  const activeType: TransactionType = tx ? tx.type : type;
   const valStr = tx ? (tx.v / 100).toFixed(2).replace('.', ',') : '';
   const descStr = tx ? tx.n : '';
   const dateStr = tx ? tx.d : now.toISOString().slice(0, 10);
@@ -57,9 +61,9 @@ export function openForm(type, txId = null) {
   }
 
   cats(tx ? tx.c : undefined);
-  $('#dlg').showModal();
+  $<HTMLDialogElement>('#dlg')?.showModal();
   setTimeout(() => {
-    const fv = $('#fv');
+    const fv = $<HTMLInputElement>('#fv');
     if (fv) fv.focus();
   }, 50);
 }

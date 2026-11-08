@@ -1,12 +1,12 @@
 /* ==========================================================================
-   home.js — Tela Inicial: Saldo, Resumo de Gastos e Últimas Movimentações
+   home.ts — Tela Inicial: Saldo, Resumo de Gastos e Últimas Movimentações
    ========================================================================== */
 
-import { S } from '../state.js';
-import { brl, esc, sum } from '../utils/currency.js';
-import { now, cur, ym, prevM, dfmt } from '../utils/date.js';
+import { S } from '../state';
+import { brl, esc, sum } from '../utils/currency';
+import { now, cur, ym, prevM, dfmt } from '../utils/date';
 
-export function home() {
+export function home(): string {
   const A = S.tx;
   const m = prevM(cur, S.per);
   const pm = prevM(cur, S.per + 1);
@@ -29,10 +29,12 @@ export function home() {
   const sv = pspent ? ((spent - pspent) / pspent) * 100 : null;
   const pct = earned ? Math.min(100, (spent / earned) * 100) : 0;
 
-  const by = {};
-  out.forEach((t) => (by[t.c] = (by[t.c] || 0) + t.v));
-  const rows = Object.entries(by).sort((a, b) => b[1] - a[1]);
-  const top = rows.slice(0, 3);
+  const by: Record<string, number> = {};
+  out.forEach((t) => {
+    by[t.c] = (by[t.c] || 0) + t.v;
+  });
+  const rows: [string, number][] = Object.entries(by).sort((a, b) => b[1] - a[1]);
+  const top: [string, number][] = rows.slice(0, 3);
   const rest = rows.slice(3).reduce((a, r) => a + r[1], 0);
   if (rest) top.push(['Outros', rest]);
 
@@ -48,8 +50,11 @@ export function home() {
     })
     .join('');
 
-  const last = [...A].reverse().sort((a, b) => b.d.localeCompare(a.d)).slice(0, 6);
-  const ch = (t, r = '') => `<div class="ch"><span>${t}</span>${r}</div>`;
+  const last = [...A]
+    .reverse()
+    .sort((a, b) => b.d.localeCompare(a.d))
+    .slice(0, 6);
+  const ch = (t: string, r = ''): string => `<div class="ch"><span>${t}</span>${r}</div>`;
 
   return `<header class="wide"><h1>Olá, <b>${esc(S.name)}</b><div class="mut" style="font-size:.8rem;font-weight:500">${now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</div></h1>
 <div style="display:flex;gap:8px"><button class="ib" id="eye" aria-label="${S.hide ? 'Mostrar' : 'Ocultar'} valores" aria-pressed="${S.hide}">${S.hide ? '🙈' : '👁'}</button><button class="ib" data-v="profile" aria-label="Configurações">⚙</button></div></header>
@@ -67,7 +72,7 @@ ${
 <section class="card">${ch('Últimas movimentações')}<div class="cb">
 ${
   last.length
-    ? last.map((t) => `<button class="tx ${t.type}" data-id="${esc(t.id)}" aria-label="Editar ${esc(t.n)}"><span class="av">${esc(t.c[0])}</span><span class="m"><b>${esc(t.n)}</b><span class="mut">${esc(t.c)} · ${dfmt(t.d)}</span></span><b class="num ${t.type === 'in' ? 'pos' : 'neg'}">${t.type === 'in' ? '+' : '−'} ${brl(t.v)}</b></button>`).join('') + '<div class="mut" style="margin-top:8px">Toque em uma movimentação para editá-la.</div>'
+    ? last.map((t) => `<button class="tx ${t.type}" data-id="${esc(t.id)}" aria-label="Editar ${esc(t.n)}"><span class="av">${esc(t.c[0] || '?')}</span><span class="m"><b>${esc(t.n)}</b><span class="mut">${esc(t.c)} · ${dfmt(t.d)}</span></span><b class="num ${t.type === 'in' ? 'pos' : 'neg'}">${t.type === 'in' ? '+' : '−'} ${brl(t.v)}</b></button>`).join('') + '<div class="mut" style="margin-top:8px">Toque em uma movimentação para editá-la.</div>'
     : `<div class="empty">Suas movimentações aparecerão aqui.<br><button class="btn p" data-add="in">Registrar ganho</button></div>`
 }</div></section>`;
 }

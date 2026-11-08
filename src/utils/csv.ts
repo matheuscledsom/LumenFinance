@@ -1,11 +1,13 @@
 /* ==========================================================================
-   csv.js — Exportação e Importação de Planilhas CSV
+   csv.ts — Exportação e Importação de Planilhas CSV
    ========================================================================== */
+
+import type { Category, Transaction } from '../types/index';
 
 /**
  * Converte uma lista de movimentações para texto CSV.
  */
-export const toCSV = (txList = []) => {
+export const toCSV = (txList: Transaction[] = []): string => {
   const header = 'id,tipo,valor_centavos,descricao,categoria,data';
   const rows = txList.map((t) => {
     const safeDesc = `"${String(t.n || '').replace(/"/g, '""')}"`;
@@ -18,7 +20,7 @@ export const toCSV = (txList = []) => {
 /**
  * Faz o parse de uma string CSV para uma lista de objetos de movimentação.
  */
-export const parseCSV = (csvText = '') => {
+export const parseCSV = (csvText = ''): Transaction[] => {
   const lines = csvText
     .trim()
     .split(/\r?\n/)
@@ -27,7 +29,7 @@ export const parseCSV = (csvText = '') => {
 
   return lines
     .slice(1)
-    .map((line, idx) => {
+    .map((line): Transaction | null => {
       const cols =
         line.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)?.map((c) =>
           c.replace(/^"|"$/g, '').replace(/""/g, '"')
@@ -40,9 +42,9 @@ export const parseCSV = (csvText = '') => {
         type: type === 'in' ? 'in' : 'out',
         v: cents,
         n: (n || 'Movimentação').slice(0, 60),
-        c: c || 'Outros',
+        c: (c || 'Outros') as Category,
         d
       };
     })
-    .filter(Boolean);
+    .filter((item): item is Transaction => item !== null);
 };

@@ -2,7 +2,7 @@
    sw.js — Service Worker para Cache Offline-First
    ========================================================================== */
 
-const CACHE_NAME = 'lumen-finance-v1';
+const CACHE_NAME = 'lumen-finance-v2';
 
 const ASSETS = [
   './',
@@ -10,25 +10,14 @@ const ASSETS = [
   './manifest.json',
   './css/base.css',
   './css/components.css',
-  './css/layout.css',
-  './js/app.js',
-  './js/state.js',
-  './js/db.js',
-  './js/components/home.js',
-  './js/components/stats.js',
-  './js/components/calendar.js',
-  './js/components/profile.js',
-  './js/components/form-modal.js',
-  './js/utils/currency.js',
-  './js/utils/date.js',
-  './js/utils/csv.js'
+  './css/layout.css'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
-      .then((cache) => cache.addAll(ASSETS))
+      .then((cache) => Promise.allSettled(ASSETS.map((url) => cache.add(url))))
       .then(() => self.skipWaiting())
   );
 });
