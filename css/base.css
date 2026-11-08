@@ -1,0 +1,107 @@
+/* ==========================================================================
+   base.css — Reset, Variáveis Globais e Temas (OLED, Branco, Cinza, Windows XP)
+   ========================================================================== */
+
+:root {
+  --bg: #050507;
+  --card: #0d0d12;
+  --bd: #1f1f2a;
+  --tx: #f2f2f7;
+  --mut: #8a8a99;
+  --pos: #22c55e;
+  --neg: #f0626b;
+  --ac: #8b5cf6;
+  --on: #fff;
+  --r: 20px;
+  --sh: none;
+  --font: 'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html {
+  height: 100%;
+  scroll-padding-top: env(safe-area-inset-top, 0px);
+  color-scheme: dark;
+}
+
+[data-theme="white"] {
+  --bg: #f3f4f8;
+  --card: #fff;
+  --bd: #e4e6ee;
+  --tx: #15151d;
+  --mut: #6a6c7b;
+  --pos: #15803d;
+  --neg: #dc2626;
+  --sh: 0 1px 3px rgba(20, 20, 40, .08);
+  color-scheme: light;
+}
+
+[data-theme="grey"] {
+  --bg: #1d1e23;
+  --card: #2a2c33;
+  --bd: #3b3e48;
+  --tx: #eceef3;
+  --mut: #a0a4b2;
+}
+
+[data-theme="xp"] {
+  --bg: #ece9d8;
+  --card: #fff;
+  --bd: #0b3fb8;
+  --tx: #111;
+  --mut: #555;
+  --pos: #0a7d1f;
+  --neg: #c01818;
+  --r: 6px;
+  --font: Tahoma, 'Segoe UI', Verdana, sans-serif;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--tx);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 2px;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+}
+
+.mut {
+  color: var(--mut);
+  font-size: .85rem;
+}
+
+.pos {
+  color: var(--pos);
+}
+
+.neg {
+  color: var(--neg);
+}

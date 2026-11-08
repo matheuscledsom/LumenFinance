@@ -1,0 +1,18 @@
+{
+  "name": "Lumen Finance",
+  "short_name": "Lumen",
+  "description": "Aplicativo de controle financeiro pessoal, offline-first e com múltiplos temas.",
+  "lang": "pt-BR",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#050507",
+  "theme_color": "#8b5cf6",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='42' fill='%23050507'/%3E%3Ccircle cx='96' cy='96' r='54' fill='none' stroke='%238b5cf6' stroke-width='18'/%3E%3Ctext x='96' y='108' text-anchor='middle' fill='%23f2f2f7' font-family='sans-serif' font-weight='800' font-size='38'%3ER$%3C/text%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
