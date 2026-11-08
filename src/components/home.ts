@@ -130,7 +130,7 @@ ${
 <div class="leg">${legItemsHtml}</div>`
     : `<div class="empty">Nenhum gasto neste período.<br><button class="btn p" data-add="out">Registrar gasto</button></div>`
 }</div></section>
-<section class="card">${ch('Últimas movimentações')}<div class="cb">
+<section class="card">${ch('Últimas movimentações', '<button type="button" class="link-btn" data-v="history">Ver histórico completo</button>')}<div class="cb">
 ${
   last.length
     ? last

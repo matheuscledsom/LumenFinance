@@ -43,6 +43,14 @@ import {
 } from './components/calendar';
 import { profile, profileCatTab, setProfileCatTab } from './components/profile';
 import {
+  history,
+  historyFilters,
+  updateHistoryFilters,
+  clearHistoryFilters,
+  loadMoreHistory,
+  renderHistoryResultsSection
+} from './components/history';
+import {
   openForm,
   cats,
   getFormTags,
@@ -92,6 +100,8 @@ export function render(): void {
     app.innerHTML =
       view === 'home'
         ? home()
+        : view === 'history'
+        ? history()
         : view === 'profile'
         ? profile()
         : view === 'stats'
@@ -110,7 +120,7 @@ export function render(): void {
   if (nav) {
     nav.innerHTML = N.map(
       (n) =>
-        `<button data-v="${n[0]}" ${view === n[0] ? 'aria-current="page"' : ''}><span aria-hidden="true">${n[1]}</span>${n[2]}</button>`
+        `<button data-v="${n[0]}" ${view === n[0] || (view === 'history' && n[0] === 'home') ? 'aria-current="page"' : ''}><span aria-hidden="true">${n[1]}</span>${n[2]}</button>`
     ).join('');
   }
 
@@ -180,6 +190,67 @@ document.addEventListener('click', (e: MouseEvent) => {
       selectCalDate(dt);
       render();
     }
+    return;
+  }
+
+  if (g('#hist-clear-q')) {
+    updateHistoryFilters({ query: '' });
+    render();
+    $<HTMLInputElement>('#hist-search')?.focus();
+    return;
+  }
+
+  if (g('#hist-reset') || g('#hist-reset-empty')) {
+    clearHistoryFilters();
+    render();
+    return;
+  }
+
+  if ((b = g('[data-hist-type]'))) {
+    const t = b.dataset.histType;
+    if (t === 'all' || t === 'in' || t === 'out') {
+      updateHistoryFilters({ type: t });
+      render();
+    }
+    return;
+  }
+
+  if (g('[data-hist-pending]')) {
+    updateHistoryFilters({ onlyPending: !historyFilters.onlyPending });
+    render();
+    return;
+  }
+
+  if (g('[data-hist-tp]')) {
+    updateHistoryFilters({ onlyThirdParty: !historyFilters.onlyThirdParty });
+    render();
+    return;
+  }
+
+  if ((b = g('[data-hist-pay]'))) {
+    const p = b.dataset.histPay;
+    if (p) {
+      const normalized = normalizePay(p);
+      updateHistoryFilters({
+        paymentMethod: historyFilters.paymentMethod === normalized ? 'all' : normalized
+      });
+      render();
+    }
+    return;
+  }
+
+  if ((b = g('[data-hist-tag]'))) {
+    const tg = b.dataset.histTag ?? '';
+    updateHistoryFilters({
+      tag: historyFilters.tag === tg ? '' : tg
+    });
+    render();
+    return;
+  }
+
+  if (g('#hist-more')) {
+    loadMoreHistory();
+    render();
     return;
   }
 
@@ -356,6 +427,28 @@ document.addEventListener('change', (e: Event) => {
     toast(cents > 0 ? 'Meta de economia atualizada' : 'Meta de economia removida');
     return;
   }
+  if (target.id === 'hist-cat') {
+    updateHistoryFilters({ categoryId: target.value });
+    render();
+    return;
+  }
+  if (target.id === 'hist-pay') {
+    updateHistoryFilters({
+      paymentMethod: target.value === 'all' ? 'all' : normalizePay(target.value)
+    });
+    render();
+    return;
+  }
+  if (target.id === 'hist-start') {
+    updateHistoryFilters({ startDate: target.value });
+    render();
+    return;
+  }
+  if (target.id === 'hist-end') {
+    updateHistoryFilters({ endDate: target.value });
+    render();
+    return;
+  }
   if (target.dataset && target.dataset.budgetInput) {
     const catId = target.dataset.budgetInput;
     const cents = parseCents(target.value);
@@ -370,6 +463,46 @@ document.addEventListener('change', (e: Event) => {
     }
   }
 });
+
+let histSearchTimer: ReturnType<typeof setTimeout> | undefined;
+
+document.addEventListener('input', (e: Event) => {
+  const target = e.target as HTMLInputElement | null;
+  if (!target) return;
+
+  if (target.id === 'hist-search' || target.id === 'q') {
+    const val = target.value;
+    if (histSearchTimer !== undefined) {
+      clearTimeout(histSearchTimer);
+    }
+    histSearchTimer = setTimeout(() => {
+      updateHistoryFilters({ query: val });
+      const dynArea = $<HTMLElement>('#hist-dynamic-area');
+      if (dynArea) {
+        dynArea.innerHTML = renderHistoryResultsSection();
+      } else {
+        render();
+      }
+    }, 150);
+  }
+});
+
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('scroll', () => {
+    if (view !== 'history') return;
+    const moreBtn = $<HTMLButtonElement>('#hist-more');
+    if (!moreBtn) return;
+    const scrollBottom = window.innerHeight + window.scrollY;
+    const docHeight = document.documentElement.offsetHeight || document.body?.offsetHeight || 0;
+    if (docHeight > 0 && scrollBottom >= docHeight - 160) {
+      loadMoreHistory();
+      const dynArea = $<HTMLElement>('#hist-dynamic-area');
+      if (dynArea) {
+        dynArea.innerHTML = renderHistoryResultsSection();
+      }
+    }
+  });
+}
 
 const handleTxFormSubmit = (e: SubmitEvent, formEl: HTMLFormElement): void => {
   const fv = $<HTMLInputElement>('#fv');

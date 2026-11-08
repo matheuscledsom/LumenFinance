@@ -811,6 +811,106 @@ input {
   cursor: pointer;
 }
 
+/* Histórico de Movimentações: Busca e Filtros Combinados */
+.hist-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.hist-search-wrap input {
+  width: 100%;
+  padding-right: 44px;
+}
+
+.hist-clear-btn {
+  position: absolute;
+  right: 6px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  font-size: .8rem;
+}
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+.filter-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 99px;
+  border: 1px solid var(--bd);
+  background: var(--bg);
+  color: var(--tx);
+  font-size: .78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.filter-chip small {
+  color: var(--mut);
+  font-weight: 500;
+}
+
+.filter-chip:hover {
+  border-color: var(--ac);
+}
+
+.filter-chip.active {
+  background: var(--ac);
+  color: var(--on);
+  border-color: var(--ac);
+}
+
+.filter-chip.active small {
+  color: var(--on);
+  opacity: .85;
+}
+
+.hist-selects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.hist-selects-grid select,
+.hist-selects-grid input {
+  padding: 9px 11px;
+  font-size: .84rem;
+}
+
+.filter-summary {
+  padding: 14px 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.filter-summary-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: .92rem;
+}
+
+.filter-summary-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: .85rem;
+  color: var(--mut);
+}
+
 /* Overrides de componentes para o tema Windows XP */
 [data-theme="xp"] .ch {
   background: linear-gradient(#2f7bf5, #0a52d6);
@@ -879,12 +979,14 @@ input {
 [data-theme="xp"] .budget-row,
 [data-theme="xp"] .kpi-box,
 [data-theme="xp"] .debtor-card,
-[data-theme="xp"] .cal-day {
+[data-theme="xp"] .cal-day,
+[data-theme="xp"] .filter-chip {
   border-radius: 4px;
   border-color: #7f9db9;
 }
 
-[data-theme="xp"] .cal-day.cal-selected {
+[data-theme="xp"] .cal-day.cal-selected,
+[data-theme="xp"] .filter-chip.active {
   background: linear-gradient(#3a85f7, #0b4fd0);
   border-color: #003c74;
   color: #fff;
@@ -913,6 +1015,7 @@ input {
   .pill-tag,
   .pill-del,
   .cal-day,
+  .filter-chip,
   select {
     transition: background-color .15s, border-color .15s, color .15s, transform .15s;
   }

@@ -138,7 +138,7 @@ export type InCategory =
 
 export type Category = OutCategory | InCategory | (string & {});
 
-export type ViewName = 'home' | 'stats' | 'cal' | 'profile';
+export type ViewName = 'home' | 'stats' | 'cal' | 'profile' | 'history';
 
 export type PaymentMethod = 'money' | 'pix' | 'debit' | 'credit' | 'bank_slip';
 
@@ -167,6 +167,7 @@ export interface Transaction {
   type: TransactionType;
   v: number;
   n: string;
+  notes?: string;
   c: Category;
   d: string;
   pay: PaymentMethod;
@@ -175,6 +176,26 @@ export interface Transaction {
   recurring?: RecurringInfo;
   thirdParty?: ThirdPartyInfo;
   status: TransactionStatus;
+}
+
+export interface TransactionFilters {
+  query: string;
+  type?: 'all' | 'in' | 'out';
+  categoryId?: string;
+  paymentMethod?: PaymentMethod | 'all';
+  tag?: string;
+  startDate?: string;
+  endDate?: string;
+  onlyPending?: boolean;
+  onlyThirdParty?: boolean;
+}
+
+export interface FilteredTransactionsResult {
+  items: Transaction[];
+  totalCount: number;
+  totalExpenseCents: number;
+  totalIncomeCents: number;
+  balanceCents: number;
 }
 
 export interface AppState {

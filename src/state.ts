@@ -13,6 +13,7 @@ import {
   type CategoryBudget,
   type CategoryItem,
   type DaySummary,
+  type FilteredTransactionsResult,
   type InstallmentInfo,
   type MonthSummary,
   type PaymentMethod,
@@ -20,6 +21,7 @@ import {
   type Theme,
   type ThirdPartyInfo,
   type Transaction,
+  type TransactionFilters,
   type TransactionStatus,
   type TransactionType,
   type UpcomingBill,
@@ -239,8 +241,12 @@ export const S: AppState = {
 };
 
 export let view: ViewName = 'home';
+export let prevView: ViewName = 'home';
 
 export const setView = (v: ViewName): void => {
+  if (view !== v && view !== 'history') {
+    prevView = view;
+  }
   view = v;
 };
 
@@ -275,6 +281,9 @@ export const migrate = (raw: unknown): Partial<AppState> => {
         tags: normalizeTags(t.tags),
         status: normalizeStatus(t.status)
       };
+      if (typeof t.notes === 'string' && t.notes.trim()) {
+        item.notes = t.notes.trim();
+      }
       if (installments) item.installments = installments;
       if (recurring) item.recurring = recurring;
       if (thirdParty) item.thirdParty = thirdParty;
@@ -596,6 +605,116 @@ export const getUpcomingBills = (limitDays = 7): UpcomingBill[] => {
   }
 
   return bills.sort((a, b) => a.daysUntilDue - b.daysUntilDue);
+};
+
+/**
+ * Remove acentos e converte string para minúsculas para busca insensível a acentos.
+ */
+const stripAccents = (str: string): string =>
+  str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+/**
+ * Filtra e ordena as movimentações de S.tx conforme múltiplos critérios combinados.
+ */
+export const filterTransactions = (
+  filters: TransactionFilters
+): FilteredTransactionsResult => {
+  const normQuery = stripAccents((filters.query || '').trim());
+  const filterType = filters.type && filters.type !== 'all' ? filters.type : null;
+  const rawCat = (filters.categoryId || '').trim();
+  const filterCat = rawCat && rawCat !== 'all' ? rawCat : null;
+  const matchedCatObj = filterCat
+    ? [...S.cats.out, ...S.cats.in].find(
+        (c) =>
+          c.id === filterCat || c.name.toLowerCase() === filterCat.toLowerCase()
+      )
+    : undefined;
+
+  const filterPay =
+    filters.paymentMethod && filters.paymentMethod !== 'all'
+      ? filters.paymentMethod
+      : null;
+  const rawTag = (filters.tag || '').trim();
+  const filterTag = rawTag && rawTag !== 'all' ? normalizeTag(rawTag) : null;
+  const startDate = (filters.startDate || '').trim();
+  const endDate = (filters.endDate || '').trim();
+  const onlyPending = Boolean(filters.onlyPending);
+  const onlyThirdParty = Boolean(filters.onlyThirdParty);
+
+  const items = S.tx
+    .filter((t) => {
+      if (normQuery) {
+        const inName = stripAccents(t.n || '').includes(normQuery);
+        const inNotes = t.notes
+          ? stripAccents(t.notes).includes(normQuery)
+          : false;
+        if (!inName && !inNotes) return false;
+      }
+
+      if (filterType && t.type !== filterType) {
+        return false;
+      }
+
+      if (filterCat) {
+        const txCatLower = (t.c || '').toLowerCase();
+        const matchesDirect =
+          txCatLower === filterCat.toLowerCase() || t.c === filterCat;
+        const matchesResolved = matchedCatObj
+          ? txCatLower === matchedCatObj.name.toLowerCase() ||
+            t.c === matchedCatObj.id
+          : false;
+        if (!matchesDirect && !matchesResolved) return false;
+      }
+
+      if (filterPay && normalizePay(t.pay) !== filterPay) {
+        return false;
+      }
+
+      if (filterTag) {
+        const txTags = normalizeTags(t.tags);
+        if (!txTags.includes(filterTag)) return false;
+      }
+
+      if (startDate && t.d < startDate) {
+        return false;
+      }
+
+      if (endDate && t.d > endDate) {
+        return false;
+      }
+
+      if (onlyPending && t.status !== 'pending') {
+        return false;
+      }
+
+      if (onlyThirdParty && !t.thirdParty?.isThirdParty) {
+        return false;
+      }
+
+      return true;
+    })
+    .slice()
+    .reverse()
+    .sort((a, b) => b.d.localeCompare(a.d));
+
+  const totalIncomeCents = items
+    .filter((t) => t.type === 'in')
+    .reduce((acc, t) => acc + t.v, 0);
+
+  const totalExpenseCents = items
+    .filter((t) => t.type === 'out')
+    .reduce((acc, t) => acc + t.v, 0);
+
+  return {
+    items,
+    totalCount: items.length,
+    totalExpenseCents,
+    totalIncomeCents,
+    balanceCents: totalIncomeCents - totalExpenseCents
+  };
 };
 
 /**
