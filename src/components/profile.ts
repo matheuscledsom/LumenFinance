@@ -4,7 +4,9 @@
 
 import { S, THEMES, ACC } from '../state';
 import type { TransactionType } from '../types/finance';
-import { esc } from '../utils/currency';
+import { brl, esc } from '../utils/currency';
+import { cardsSection } from './cards';
+import { getRoundUpTotal } from '../state';
 
 export let profileCatTab: TransactionType = 'out';
 
@@ -31,6 +33,15 @@ export function profile(): string {
     })
     .join('');
 
+  const shortcutRows = S.quickShortcuts.length
+    ? S.quickShortcuts
+        .map(
+          (sc) =>
+            `<div class="cat-item"><span class="cat-info"><b>${esc(sc.label)}</b><span class="mut num">${brl(sc.amountCents)}</span></span><button type="button" class="ib cat-del" data-del-shortcut="${esc(sc.id)}" aria-label="Excluir atalho ${esc(sc.label)}">×</button></div>`
+        )
+        .join('')
+    : '<div class="mut">Nenhum atalho criado.</div>';
+
   const goalStr =
     S.goalCents > 0 ? (S.goalCents / 100).toFixed(2).replace('.', ',') : '';
 
@@ -40,6 +51,15 @@ export function profile(): string {
 <section class="card wide"><div class="ch">Meta de Economia Mensal</div><div class="cb">
 <div class="mut" style="margin-bottom:8px">Estipule o valor alvo de sobra líquida do mês (receitas − despesas).</div>
 <div class="goal-form"><input id="fgoal" inputmode="decimal" placeholder="Ex.: 2000,00" value="${esc(goalStr)}" aria-label="Meta mensal de economia (R$)"><button type="button" class="btn p" id="fgoal-save">Salvar</button>${S.goalCents > 0 ? `<button type="button" class="btn" id="fgoal-clear">Limpar</button>` : ''}</div>
+</div></section>
+${cardsSection()}
+<section class="card wide"><div class="ch"><span>Atalhos Rápidos</span><button type="button" class="btn p" data-shortcut-add style="padding:6px 12px;font-size:.8rem">+ Atalho</button></div><div class="cb">
+<div class="mut" style="margin-bottom:10px">Chips de 1 toque na tela inicial que registram o gasto na hora.</div>
+<div class="cat-manage-list">${shortcutRows}</div>
+</div></section>
+<section class="card wide"><div class="ch">Cofrinho de Arredondamento</div><div class="cb">
+<label class="chk-row" style="margin-top:0"><input id="round-toggle" type="checkbox"${S.roundUpEnabled ? ' checked' : ''}><span>Arredondar gastos para a próxima dezena de reais</span></label>
+<div class="mut" style="margin-top:8px">${S.roundUpEnabled ? `Guardado virtualmente neste mês: <b class="pos num">${brl(getRoundUpTotal())}</b>` : 'Cada gasto soma a diferença até a próxima dezena (ex.: R$ 12,50 → R$ 7,50 no cofrinho).'}</div>
 </div></section>
 <section class="card wide"><div class="ch">Orçamentos por Categoria</div><div class="cb">
 <div class="mut" style="margin-bottom:10px">Defina o teto mensal de gastos (R$) para cada categoria de despesa.</div>

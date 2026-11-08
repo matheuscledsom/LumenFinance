@@ -21,7 +21,11 @@ import {
   setSavingsGoal,
   getCategoryBudgetsProgress,
   resetState,
-  normalizePay
+  normalizePay,
+  removeCard,
+  removeDebt,
+  removeShortcut,
+  runShortcut
 } from './state';
 import type {
   Category,
@@ -31,7 +35,8 @@ import type {
   TransactionType,
   ViewName
 } from './types/finance';
-import { lum, con, parseCents } from './utils/currency';
+import { brl, lum, con, parseCents } from './utils/currency';
+import { parseAmountInput } from './utils/qol';
 import { home } from './components/home';
 import { stats } from './components/stats';
 import {
@@ -50,8 +55,24 @@ import {
   loadMoreHistory,
   renderHistoryResultsSection
 } from './components/history';
+import { debts, debtsTab, setDebtsTab, buildWhatsAppLink } from './components/debts';
+import {
+  openShortcutDialog,
+  openDebtDialog,
+  openAmortizeDialog,
+  openCardDialog,
+  closeDialog2,
+  submitDialog2
+} from './components/dialogs';
+import {
+  onboarding,
+  nextOnboardingStep,
+  prevOnboardingStep,
+  finishOnboarding
+} from './components/onboarding';
 import {
   openForm,
+  pasteAmountFromClipboard,
   cats,
   getFormTags,
   addFormTag,
@@ -62,21 +83,39 @@ const $ = <T extends Element = HTMLElement>(s: string): T | null =>
   document.querySelector<T>(s);
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
+let toastUndo: (() => void) | null = null;
+let lastBalanceTap = 0;
+
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
 
 /**
- * Exibe uma mensagem rápida (toast) no topo da tela.
+ * Exibe uma mensagem rápida (toast) no topo da tela, com ação opcional (ex.: "Desfazer").
  */
-export const toast = (m: string): void => {
+export const toast = (m: string, action?: ToastAction): void => {
   const t = $<HTMLElement>('#toast');
   if (!t) return;
   t.textContent = m;
+  toastUndo = null;
+  if (action) {
+    toastUndo = action.run;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-undo';
+    btn.dataset.toastUndo = '1';
+    btn.textContent = action.label;
+    t.append(' ', btn);
+  }
   t.style.display = 'block';
   if (toastTimer !== undefined) {
     clearTimeout(toastTimer);
   }
   toastTimer = setTimeout(() => {
     t.style.display = 'none';
-  }, 2600);
+    toastUndo = null;
+  }, action ? 5500 : 2600);
 };
 
 /**
@@ -102,6 +141,8 @@ export function render(): void {
         ? home()
         : view === 'history'
         ? history()
+        : view === 'debts'
+        ? debts()
         : view === 'profile'
         ? profile()
         : view === 'stats'
@@ -113,6 +154,7 @@ export function render(): void {
     ['home', '⌂', 'Início'],
     ['stats', '▥', 'Estatísticas'],
     ['cal', '▦', 'Calendário'],
+    ['debts', '⇄', 'Dívidas'],
     ['profile', '☺', 'Perfil']
   ];
 
@@ -123,6 +165,9 @@ export function render(): void {
         `<button data-v="${n[0]}" ${view === n[0] || (view === 'history' && n[0] === 'home') ? 'aria-current="page"' : ''}><span aria-hidden="true">${n[1]}</span>${n[2]}</button>`
     ).join('');
   }
+
+  const onbRoot = $<HTMLElement>('#onb-root');
+  if (onbRoot) onbRoot.innerHTML = onboarding();
 
   const p = $<HTMLSelectElement>('#per');
   if (p) p.value = String(S.per);
@@ -138,6 +183,151 @@ document.addEventListener('click', (e: MouseEvent) => {
   const g = <T extends HTMLElement = HTMLElement>(s: string): T | null =>
     target.closest<T>(s);
   let b: HTMLElement | null;
+
+  if (g('[data-toast-undo]')) {
+    const undo = toastUndo;
+    toastUndo = null;
+    const t = $<HTMLElement>('#toast');
+    if (t) t.style.display = 'none';
+    if (undo) undo();
+    return;
+  }
+
+  if (g('.bal')) {
+    const tapAt = Date.now();
+    if (tapAt - lastBalanceTap < 350) {
+      lastBalanceTap = 0;
+      S.hide = !S.hide;
+      save();
+      render();
+      return;
+    }
+    lastBalanceTap = tapAt;
+  }
+
+  if (g('[data-onb-next]')) {
+    nextOnboardingStep();
+    render();
+    return;
+  }
+  if (g('[data-onb-prev]')) {
+    prevOnboardingStep();
+    render();
+    return;
+  }
+  if (g('[data-onb-skip]')) {
+    finishOnboarding(true);
+    render();
+    return;
+  }
+  if (g('[data-onb-finish]')) {
+    finishOnboarding();
+    render();
+    toast(`Tudo pronto, ${S.name}!`);
+    return;
+  }
+
+  if ((b = g('[data-quick]'))) {
+    const created = b.dataset.quick ? runShortcut(b.dataset.quick) : null;
+    if (created) {
+      render();
+      toast(`${created.n} registrado · ${brl(created.v)}`, {
+        label: 'Desfazer',
+        run: () => {
+          deleteTx(created.id);
+          render();
+          toast('Lançamento desfeito');
+        }
+      });
+    }
+    return;
+  }
+
+  if (g('[data-shortcut-add]')) {
+    openShortcutDialog();
+    return;
+  }
+
+  if ((b = g('[data-del-shortcut]'))) {
+    if (b.dataset.delShortcut) {
+      removeShortcut(b.dataset.delShortcut);
+      render();
+      toast('Atalho removido');
+    }
+    return;
+  }
+
+  if (g('[data-close-dlg2]')) {
+    closeDialog2();
+    return;
+  }
+
+  if ((b = g('[data-fill-remaining]'))) {
+    const am = $<HTMLInputElement>('#am-v');
+    if (am) am.value = b.dataset.fillRemaining ?? '';
+    return;
+  }
+
+  if (g('[data-card-add]')) {
+    openCardDialog();
+    return;
+  }
+  if ((b = g('[data-card-edit]'))) {
+    openCardDialog(b.dataset.cardEdit);
+    return;
+  }
+  if ((b = g('[data-card-del]'))) {
+    const card = S.cards.find((c) => c.id === b?.dataset.cardDel);
+    if (card && confirm(`Excluir o cartão "${card.name}"? As compras serão mantidas sem cartão.`)) {
+      removeCard(card.id);
+      render();
+      toast('Cartão removido');
+    }
+    return;
+  }
+
+  if ((b = g('[data-debt-tab]'))) {
+    setDebtsTab(b.dataset.debtTab === 'to_pay' ? 'to_pay' : 'to_receive');
+    render();
+    return;
+  }
+  if (g('[data-debt-add]')) {
+    openDebtDialog(debtsTab);
+    return;
+  }
+  if ((b = g('[data-debt-pay]'))) {
+    if (b.dataset.debtPay) openAmortizeDialog(b.dataset.debtPay);
+    return;
+  }
+  if ((b = g('[data-debt-del]'))) {
+    const debt = S.debts.find((d) => d.id === b?.dataset.debtDel);
+    if (debt && confirm(`Excluir a dívida de "${debt.personName}"?`)) {
+      removeDebt(debt.id);
+      render();
+      toast('Dívida removida');
+    }
+    return;
+  }
+  if ((b = g('[data-debt-wa]'))) {
+    const debt = S.debts.find((d) => d.id === b?.dataset.debtWa);
+    if (debt) {
+      if (debt.pixKey && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard
+          .writeText(debt.pixKey)
+          .then(() => toast('Chave Pix copiada e mensagem aberta no WhatsApp'))
+          .catch(() => toast('Não foi possível copiar a chave Pix'));
+      }
+      window.open(buildWhatsAppLink(debt), '_blank', 'noopener');
+    }
+    return;
+  }
+
+  if (g('#fpaste')) {
+    pasteAmountFromClipboard().then((ok) =>
+      toast(ok ? 'Valor colado da área de transferência' : 'Nenhum valor encontrado na área de transferência')
+    );
+    return;
+  }
 
   if ((b = g('[data-toggle-tp]'))) {
     e.stopPropagation();
@@ -427,6 +617,13 @@ document.addEventListener('change', (e: Event) => {
     toast(cents > 0 ? 'Meta de economia atualizada' : 'Meta de economia removida');
     return;
   }
+  if (target.id === 'round-toggle') {
+    S.roundUpEnabled = (target as HTMLInputElement).checked;
+    save();
+    render();
+    toast(S.roundUpEnabled ? 'Cofrinho de arredondamento ativado' : 'Cofrinho desativado');
+    return;
+  }
   if (target.id === 'hist-cat') {
     updateHistoryFilters({ categoryId: target.value });
     render();
@@ -517,7 +714,7 @@ const handleTxFormSubmit = (e: SubmitEvent, formEl: HTMLFormElement): void => {
   const ftag = $<HTMLInputElement>('#ftag');
   const fe = $<HTMLElement>('#fe');
 
-  const v = parseCents(fv?.value);
+  const v = parseAmountInput(fv?.value);
   if (!(v > 0)) {
     e.preventDefault();
     if (fe) fe.textContent = 'Informe um valor maior que zero, como 45,50.';
@@ -552,7 +749,17 @@ const handleTxFormSubmit = (e: SubmitEvent, formEl: HTMLFormElement): void => {
       }
     : undefined;
 
+  const fcardEl = $<HTMLSelectElement>('#fcard');
+  const cardId =
+    activeType === 'out' &&
+    normalizePay(fpay?.value) === 'credit' &&
+    fcardEl?.value &&
+    S.cards.some((c) => c.id === fcardEl.value)
+      ? fcardEl.value
+      : undefined;
+
   const baseFields = {
+    cardId,
     type: activeType,
     v,
     n: (fn?.value || '').trim(),
@@ -628,6 +835,20 @@ const handleTxFormSubmit = (e: SubmitEvent, formEl: HTMLFormElement): void => {
 document.addEventListener('submit', (e: SubmitEvent) => {
   const target = e.target as HTMLFormElement | null;
   if (!target) return;
+
+  if (target.id === 'f2') {
+    e.preventDefault();
+    const res = submitDialog2(target);
+    if (!res.ok) {
+      const err = $<HTMLElement>('#f2e');
+      if (err) err.textContent = res.message;
+      return;
+    }
+    closeDialog2();
+    render();
+    toast(res.message);
+    return;
+  }
 
   if (target.id === 'fcat') {
     e.preventDefault();

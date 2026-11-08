@@ -12,11 +12,16 @@ import {
   type Category,
   type CategoryBudget,
   type CategoryItem,
+  type CreditCard,
   type DaySummary,
+  type DebtPayment,
+  type DebtRecord,
+  type DebtType,
   type FilteredTransactionsResult,
   type InstallmentInfo,
   type MonthSummary,
   type PaymentMethod,
+  type QuickShortcut,
   type RecurringInfo,
   type Theme,
   type ThirdPartyInfo,
@@ -37,6 +42,7 @@ import {
   toIsoDate,
   ym
 } from './utils/date';
+import { calculateRoundUp } from './utils/qol';
 
 export const K = 'lumen.v1';
 
@@ -223,6 +229,119 @@ export const normalizeBudgets = (
   return out;
 };
 
+const asString = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+const asPositiveInt = (v: unknown): number => {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+};
+const clampDay = (v: unknown, fallback: number): number => {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) && n >= 1 && n <= 31 ? n : fallback;
+};
+
+/**
+ * Normaliza a lista de cartões de crédito persistida.
+ */
+export const normalizeCards = (raw: unknown): CreditCard[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: CreditCard[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    const name = asString(r.name);
+    if (!name) continue;
+    const card: CreditCard = {
+      id: asString(r.id) || crypto.randomUUID(),
+      name,
+      color: /^#[0-9a-f]{6}$/i.test(asString(r.color)) ? asString(r.color) : '#8b5cf6',
+      limitCents: asPositiveInt(r.limitCents),
+      closingDay: clampDay(r.closingDay, 10),
+      dueDay: clampDay(r.dueDay, 17)
+    };
+    const digits = asString(r.lastDigits).replace(/\D/g, '').slice(-4);
+    if (digits) card.lastDigits = digits;
+    out.push(card);
+  }
+  return out;
+};
+
+/**
+ * Normaliza o livro de dívidas e empréstimos persistido.
+ */
+export const normalizeDebts = (raw: unknown): DebtRecord[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: DebtRecord[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    const personName = asString(r.personName);
+    const original = asPositiveInt(r.originalAmountCents);
+    if (!personName || !original) continue;
+
+    const payments: DebtPayment[] = [];
+    if (Array.isArray(r.payments)) {
+      for (const p of r.payments) {
+        if (!p || typeof p !== 'object') continue;
+        const pr = p as Record<string, unknown>;
+        const amountCents = asPositiveInt(pr.amountCents);
+        if (!amountCents) continue;
+        const payment: DebtPayment = {
+          id: asString(pr.id) || crypto.randomUUID(),
+          amountCents,
+          date: asString(pr.date) || toIsoDate(now)
+        };
+        const notes = asString(pr.notes);
+        if (notes) payment.notes = notes;
+        payments.push(payment);
+      }
+    }
+    const paidAmountCents = payments.reduce((a, p) => a + p.amountCents, 0);
+    const debt: DebtRecord = {
+      id: asString(r.id) || crypto.randomUUID(),
+      personName,
+      type: r.type === 'to_pay' ? 'to_pay' : 'to_receive',
+      originalAmountCents: original,
+      paidAmountCents,
+      payments,
+      description: asString(r.description),
+      status: paidAmountCents >= original ? 'settled' : 'active',
+      createdAt: asString(r.createdAt) || toIsoDate(now)
+    };
+    const dueDate = asString(r.dueDate);
+    if (dueDate) debt.dueDate = dueDate;
+    const pixKey = asString(r.pixKey);
+    if (pixKey) debt.pixKey = pixKey;
+    out.push(debt);
+  }
+  return out;
+};
+
+/**
+ * Normaliza os atalhos rápidos de 1 toque persistidos.
+ */
+export const normalizeShortcuts = (raw: unknown): QuickShortcut[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: QuickShortcut[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    const label = asString(r.label);
+    const amountCents = asPositiveInt(r.amountCents);
+    if (!label || !amountCents) continue;
+    const sc: QuickShortcut = {
+      id: asString(r.id) || crypto.randomUUID(),
+      label,
+      amountCents,
+      categoryId: asString(r.categoryId),
+      paymentMethod: normalizePay(r.paymentMethod)
+    };
+    const cardId = asString(r.cardId);
+    if (cardId) sc.cardId = cardId;
+    out.push(sc);
+  }
+  return out;
+};
+
 const defaultTheme = (): Theme =>
   typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: light)').matches
     ? 'white'
@@ -237,7 +356,12 @@ export const S: AppState = {
   tx: [],
   cats: cloneDefaultCategories(),
   budgets: {},
-  goalCents: 0
+  goalCents: 0,
+  cards: [],
+  debts: [],
+  quickShortcuts: [],
+  hasCompletedOnboarding: false,
+  roundUpEnabled: false
 };
 
 export let view: ViewName = 'home';
@@ -259,7 +383,12 @@ export const migrate = (raw: unknown): Partial<AppState> => {
     return {
       cats: cloneDefaultCategories(),
       budgets: {},
-      goalCents: 0
+      goalCents: 0,
+      cards: [],
+      debts: [],
+      quickShortcuts: [],
+      roundUpEnabled: false,
+      hasCompletedOnboarding: false
     };
   }
   const data = raw as Record<string, unknown>;
@@ -284,6 +413,9 @@ export const migrate = (raw: unknown): Partial<AppState> => {
       if (typeof t.notes === 'string' && t.notes.trim()) {
         item.notes = t.notes.trim();
       }
+      if (typeof t.cardId === 'string' && t.cardId.trim()) {
+        item.cardId = t.cardId.trim();
+      }
       if (installments) item.installments = installments;
       if (recurring) item.recurring = recurring;
       if (thirdParty) item.thirdParty = thirdParty;
@@ -297,7 +429,20 @@ export const migrate = (raw: unknown): Partial<AppState> => {
       ? Math.round(data.goalCents)
       : 0;
 
-  const result: Partial<AppState> = { tx, cats, budgets, goalCents };
+  const result: Partial<AppState> = {
+    tx,
+    cats,
+    budgets,
+    goalCents,
+    cards: normalizeCards(data.cards),
+    debts: normalizeDebts(data.debts),
+    quickShortcuts: normalizeShortcuts(data.quickShortcuts),
+    roundUpEnabled: data.roundUpEnabled === true,
+    hasCompletedOnboarding:
+      typeof data.hasCompletedOnboarding === 'boolean'
+        ? data.hasCompletedOnboarding
+        : tx.length > 0
+  };
   if (typeof data.name === 'string') result.name = data.name;
   if (
     data.theme === 'oled' ||
@@ -332,6 +477,7 @@ export type InstallmentBaseTx = {
   pay?: PaymentMethod;
   tags?: string[];
   thirdParty?: ThirdPartyInfo;
+  cardId?: string;
 };
 
 /**
@@ -385,6 +531,9 @@ export const createInstallments = (
         personName: thirdParty.personName,
         isReimbursed: false
       };
+    }
+    if (baseTx.cardId) {
+      item.cardId = baseTx.cardId;
     }
 
     generated.push(item);
@@ -443,6 +592,9 @@ export const materializeRecurring = (targetYm: string = cur): number => {
         personName: template.thirdParty.personName,
         isReimbursed: false
       };
+    }
+    if (template.cardId) {
+      item.cardId = template.cardId;
     }
     S.tx.push(item);
     createdCount++;
@@ -729,6 +881,10 @@ export const get = (): AppState => {
     S.cats = cloneDefaultCategories();
     S.budgets = {};
     S.goalCents = 0;
+    S.cards = [];
+    S.debts = [];
+    S.quickShortcuts = [];
+    S.roundUpEnabled = false;
   }
   return S;
 };
@@ -985,6 +1141,230 @@ export const deleteTx = (id: string): void => {
   save();
 };
 
+/* ==========================================================================
+   Cartões de Crédito
+   ========================================================================== */
+
+export type CardInput = Omit<CreditCard, 'id'>;
+
+/**
+ * Cadastra um cartão de crédito e persiste.
+ */
+export const addCard = (input: CardInput): CreditCard => {
+  const [card] = normalizeCards([{ ...input, id: crypto.randomUUID() }]);
+  S.cards.push(card);
+  save();
+  return card;
+};
+
+/**
+ * Atualiza os dados de um cartão existente e persiste.
+ */
+export const updateCard = (id: string, input: CardInput): boolean => {
+  const idx = S.cards.findIndex((c) => c.id === id);
+  if (idx < 0) return false;
+  const [card] = normalizeCards([{ ...input, id }]);
+  if (!card) return false;
+  S.cards[idx] = card;
+  save();
+  return true;
+};
+
+/**
+ * Remove um cartão, desvinculando suas movimentações e atalhos.
+ */
+export const removeCard = (id: string): void => {
+  S.cards = S.cards.filter((c) => c.id !== id);
+  for (const t of S.tx) {
+    if (t.cardId === id) delete t.cardId;
+  }
+  for (const sc of S.quickShortcuts) {
+    if (sc.cardId === id) delete sc.cardId;
+  }
+  save();
+};
+
+/* ==========================================================================
+   Central de Dívidas e Empréstimos
+   ========================================================================== */
+
+export type DebtInput = Omit<
+  DebtRecord,
+  'id' | 'paidAmountCents' | 'payments' | 'status' | 'createdAt'
+>;
+
+/**
+ * Registra uma nova dívida/empréstimo (a receber ou a pagar) e persiste.
+ */
+export const addDebt = (debt: DebtInput): void => {
+  const original = Math.round(debt.originalAmountCents);
+  const personName = debt.personName.trim();
+  if (!(original > 0) || !personName) return;
+  const record: DebtRecord = {
+    id: crypto.randomUUID(),
+    personName,
+    type: debt.type,
+    originalAmountCents: original,
+    paidAmountCents: 0,
+    payments: [],
+    description: debt.description.trim(),
+    status: 'active',
+    createdAt: toIsoDate(now)
+  };
+  if (debt.dueDate) record.dueDate = debt.dueDate;
+  if (debt.pixKey && debt.pixKey.trim()) record.pixKey = debt.pixKey.trim();
+  S.debts.push(record);
+  save();
+};
+
+/**
+ * Registra um pagamento (amortização) parcial ou total. Quando atingir o valor original,
+ * marca a dívida como 'settled'. Se registerAsIncome e a dívida for 'to_receive',
+ * lança automaticamente um ganho em S.tx.
+ */
+export const amortizeDebt = (
+  debtId: string,
+  amountCents: number,
+  registerAsIncome = false
+): void => {
+  const debt = S.debts.find((d) => d.id === debtId);
+  const amount = Math.round(amountCents);
+  if (!debt || debt.status === 'settled' || !(amount > 0)) return;
+
+  const today = toIsoDate(now);
+  debt.payments.push({ id: crypto.randomUUID(), amountCents: amount, date: today });
+  debt.paidAmountCents += amount;
+  if (debt.paidAmountCents >= debt.originalAmountCents) {
+    debt.status = 'settled';
+  }
+
+  if (registerAsIncome && debt.type === 'to_receive') {
+    const inCat = S.cats.in.find((c) => c.name === 'Outros') || S.cats.in[0];
+    S.tx.push({
+      id: crypto.randomUUID(),
+      type: 'in',
+      v: amount,
+      n: `Recebimento: ${debt.personName}`,
+      c: (inCat ? inCat.name : 'Outros') as Category,
+      d: today,
+      pay: 'pix',
+      tags: ['divida'],
+      status: 'confirmed'
+    });
+  }
+  save();
+};
+
+/**
+ * Remove uma dívida do livro e persiste.
+ */
+export const removeDebt = (debtId: string): void => {
+  S.debts = S.debts.filter((d) => d.id !== debtId);
+  save();
+};
+
+/**
+ * Saldo restante de uma dívida em centavos.
+ */
+export const debtRemaining = (debt: DebtRecord): number =>
+  Math.max(0, debt.originalAmountCents - debt.paidAmountCents);
+
+/**
+ * Totais agregados das dívidas ativas: a receber vs. a pagar.
+ */
+export const getDebtTotals = (): { toReceiveCents: number; toPayCents: number } => {
+  let toReceiveCents = 0;
+  let toPayCents = 0;
+  for (const d of S.debts) {
+    if (d.status !== 'active') continue;
+    if (d.type === 'to_receive') toReceiveCents += debtRemaining(d);
+    else toPayCents += debtRemaining(d);
+  }
+  return { toReceiveCents, toPayCents };
+};
+
+export type { DebtType };
+
+/* ==========================================================================
+   Atalhos Rápidos, Cofrinho e Histórico por Estabelecimento
+   ========================================================================== */
+
+/**
+ * Adiciona um atalho rápido de 1 toque e persiste.
+ */
+export const addShortcut = (input: Omit<QuickShortcut, 'id'>): void => {
+  const [sc] = normalizeShortcuts([{ ...input, id: crypto.randomUUID() }]);
+  if (!sc) return;
+  S.quickShortcuts.push(sc);
+  save();
+};
+
+/**
+ * Remove um atalho rápido e persiste.
+ */
+export const removeShortcut = (id: string): void => {
+  S.quickShortcuts = S.quickShortcuts.filter((s) => s.id !== id);
+  save();
+};
+
+/**
+ * Registra imediatamente o gasto de um atalho rápido. Retorna a transação criada.
+ */
+export const runShortcut = (id: string): Transaction | null => {
+  const sc = S.quickShortcuts.find((s) => s.id === id);
+  if (!sc) return null;
+  const cat =
+    S.cats.out.find((c) => c.id === sc.categoryId || c.name === sc.categoryId) ||
+    S.cats.out[0];
+  const fields: CreateTxInput = {
+    type: 'out',
+    v: sc.amountCents,
+    n: sc.label,
+    c: (cat ? cat.name : 'Outros') as Category,
+    d: toIsoDate(now),
+    pay: sc.paymentMethod,
+    tags: []
+  };
+  if (sc.cardId && sc.paymentMethod === 'credit' && S.cards.some((c) => c.id === sc.cardId)) {
+    fields.cardId = sc.cardId;
+  }
+  return addTx(fields);
+};
+
+/**
+ * Total acumulado no cofrinho de arredondamento para as despesas pessoais confirmadas do mês.
+ */
+export const getRoundUpTotal = (monthYear: string = cur): number =>
+  S.tx
+    .filter(
+      (t) =>
+        t.type === 'out' &&
+        !t.thirdParty?.isThirdParty &&
+        t.status === 'confirmed' &&
+        ym(t.d) === monthYear
+    )
+    .reduce((acc, t) => acc + calculateRoundUp(t.v), 0);
+
+/**
+ * Localiza o último lançamento de despesa cujo nome corresponde (sem acentos/caixa) ao informado.
+ */
+export const findLastByName = (name: string, excludeId?: string): Transaction | null => {
+  const q = stripAccents(name.trim());
+  if (q.length < 2) return null;
+  let exact: Transaction | null = null;
+  let prefix: Transaction | null = null;
+  for (const t of S.tx) {
+    if (t.type !== 'out' || (excludeId && String(t.id) === String(excludeId))) continue;
+    const n = stripAccents(t.n.replace(/\s*\(\d+\/\d+\)\s*$/, ''));
+    if (n === q) {
+      if (!exact || t.d >= exact.d) exact = t;
+    } else if (n.startsWith(q)) {
+      if (!prefix || t.d >= prefix.d) prefix = t;
+    }
+  }
+  return exact || prefix;
+};
+
 /**
  * Limpa todas as movimentações, restaura categorias, orçamentos e metas no localStorage.
  */
@@ -996,6 +1376,11 @@ export const resetState = (): void => {
   S.cats = cloneDefaultCategories();
   S.budgets = {};
   S.goalCents = 0;
+  S.cards = [];
+  S.debts = [];
+  S.quickShortcuts = [];
+  S.roundUpEnabled = false;
+  S.hasCompletedOnboarding = false;
   save();
 };
 

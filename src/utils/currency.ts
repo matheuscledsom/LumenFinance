@@ -4,6 +4,7 @@
 
 import { S } from '../state';
 import type { Transaction } from '../types/index';
+import { parseDecimalToken } from './qol';
 
 const ESC_MAP: Record<string, string> = {
   '&': '&amp;',
@@ -27,15 +28,16 @@ export const brl = (c: number): string =>
     : (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 /**
- * Converte string de valor monetário (ex: "45,50") para centavos (inteiro).
+ * Formata centavos em BRL sem aplicar a máscara de privacidade (uso em textos compartilháveis).
  */
-export const parseCents = (input: string | number | null | undefined): number => {
-  const raw = String(input || '')
-    .trim()
-    .replace(/\./g, '')
-    .replace(',', '.');
-  return Math.round(parseFloat(raw) * 100);
-};
+export const brlPlain = (c: number): string =>
+  (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+/**
+ * Converte string de valor monetário (ex: "45,50" ou "45.90") para centavos (inteiro).
+ */
+export const parseCents = (input: string | number | null | undefined): number =>
+  Math.round(parseDecimalToken(String(input || '').trim()) * 100);
 
 /**
  * Retorna o valor com sinal de acordo com o tipo da movimentação.

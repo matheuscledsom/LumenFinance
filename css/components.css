@@ -911,6 +911,309 @@ input {
   color: var(--mut);
 }
 
+/* Calculadora, colar valor e dica de histórico no formulário */
+.fv-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fv-row .ib {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+}
+
+#fn-hint:empty,
+#fcard-hint:empty {
+  display: none;
+}
+
+/* Barra de atalhos rápidos (Home) */
+.bal {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.quick-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+.quick-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 99px;
+  border: 1px solid color-mix(in srgb, var(--ac) 45%, var(--bd));
+  background: color-mix(in srgb, var(--ac) 12%, var(--card));
+  color: var(--tx);
+  font-size: .85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.quick-chip:hover {
+  border-color: var(--ac);
+}
+
+.quick-chip:active {
+  transform: scale(.97);
+}
+
+.quick-chip.quick-add {
+  background: none;
+  border-style: dashed;
+  color: var(--mut);
+}
+
+.toast-undo {
+  margin-left: 8px;
+  padding: 2px 10px;
+  border-radius: 99px;
+  border: 1px solid currentColor;
+  background: none;
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+/* Cartões virtuais */
+.vcard-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.vcard {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 18px;
+  color: var(--vc-on, #fff);
+  background: linear-gradient(135deg, var(--vc), color-mix(in srgb, var(--vc) 55%, #000));
+  box-shadow: var(--sh);
+}
+
+.vc-top,
+.vc-invoice,
+.vc-limit-head,
+.vc-limit-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.vc-name {
+  font-size: 1.05rem;
+}
+
+.vc-invoice {
+  font-size: .85rem;
+}
+
+.vc-invoice b {
+  font-size: 1.15rem;
+}
+
+.vc-limit {
+  display: grid;
+  gap: 5px;
+  font-size: .78rem;
+}
+
+.vc-track {
+  height: 8px;
+  border-radius: 99px;
+  background: rgba(0, 0, 0, .28);
+  overflow: hidden;
+}
+
+.vc-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: var(--vc-on, #fff);
+}
+
+.vc-fill.vc-over {
+  background: #ff5d5d;
+}
+
+.vc-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: .76rem;
+  opacity: .92;
+}
+
+.vc-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.vc-btn {
+  padding: 5px 12px;
+  border-radius: 99px;
+  border: 1px solid currentColor;
+  background: rgba(0, 0, 0, .12);
+  color: inherit;
+  font-size: .75rem;
+  font-weight: 700;
+}
+
+/* Central de dívidas */
+.debt-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.debt-list {
+  display: grid;
+  gap: 12px;
+}
+
+.debt-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--bd);
+  background: var(--bg);
+}
+
+.debt-card.settled {
+  opacity: .7;
+}
+
+.debt-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.debt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.debt-chips:empty {
+  display: none;
+}
+
+.debt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 99px;
+  border: 1px solid var(--bd);
+  background: var(--card);
+  color: var(--mut);
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.debt-chip.ok {
+  border-color: var(--pos);
+  color: var(--pos);
+}
+
+.debt-chip.late {
+  border-color: var(--neg);
+  color: var(--neg);
+}
+
+.debt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.debt-actions .btn {
+  padding: 8px 12px;
+  font-size: .8rem;
+}
+
+/* Onboarding e confete */
+.onb-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, .7);
+}
+
+.onb-modal {
+  width: min(440px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  padding: 22px 20px 18px;
+}
+
+.onb-modal h2 {
+  margin: 12px 0 4px;
+  font-size: 1.3rem;
+}
+
+.onb-modal p {
+  margin: 0;
+}
+
+.onb-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.onb-dots i {
+  flex: 1;
+  height: 4px;
+  border-radius: 99px;
+  background: var(--bd);
+}
+
+.onb-dots i.on {
+  background: var(--ac);
+}
+
+.onb-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.onb-actions .btn {
+  flex: 1;
+}
+
+#confetti-root {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+#confetti-root i {
+  display: none;
+}
+
 /* Overrides de componentes para o tema Windows XP */
 [data-theme="xp"] .ch {
   background: linear-gradient(#2f7bf5, #0a52d6);
@@ -980,7 +1283,10 @@ input {
 [data-theme="xp"] .kpi-box,
 [data-theme="xp"] .debtor-card,
 [data-theme="xp"] .cal-day,
-[data-theme="xp"] .filter-chip {
+[data-theme="xp"] .filter-chip,
+[data-theme="xp"] .quick-chip,
+[data-theme="xp"] .debt-card,
+[data-theme="xp"] .debt-chip {
   border-radius: 4px;
   border-color: #7f9db9;
 }
@@ -990,6 +1296,25 @@ input {
   background: linear-gradient(#3a85f7, #0b4fd0);
   border-color: #003c74;
   color: #fff;
+}
+
+[data-theme="xp"] .vcard {
+  border-radius: 6px;
+  border: 2px solid #003c74;
+}
+
+[data-theme="xp"] .onb-modal {
+  border: 2px solid #003c74;
+  border-radius: 6px;
+}
+
+[data-theme="xp"] .onb-dots i.on {
+  background: #2f7a21;
+}
+
+[data-theme="xp"] .quick-chip {
+  background: linear-gradient(#fff, #e3e1d2);
+  color: #111;
 }
 
 [data-theme="xp"] .cal-alerts {
@@ -1016,8 +1341,38 @@ input {
   .pill-del,
   .cal-day,
   .filter-chip,
+  .quick-chip,
   select {
     transition: background-color .15s, border-color .15s, color .15s, transform .15s;
+  }
+
+  .vc-fill {
+    transition: width .25s ease;
+  }
+
+  #confetti-root i {
+    display: block;
+    position: absolute;
+    top: -16px;
+    width: 8px;
+    height: 14px;
+    border-radius: 2px;
+    opacity: 0;
+    animation-name: confetti-fall;
+    animation-timing-function: ease-in;
+    animation-fill-mode: forwards;
+  }
+
+  @keyframes confetti-fall {
+    0% {
+      transform: translateY(0) rotate(var(--rot));
+      opacity: 1;
+    }
+
+    100% {
+      transform: translateY(105vh) rotate(calc(var(--rot) + 540deg));
+      opacity: 0;
+    }
   }
 
   .prog-fill {

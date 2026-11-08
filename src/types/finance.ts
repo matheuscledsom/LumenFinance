@@ -138,7 +138,7 @@ export type InCategory =
 
 export type Category = OutCategory | InCategory | (string & {});
 
-export type ViewName = 'home' | 'stats' | 'cal' | 'profile' | 'history';
+export type ViewName = 'home' | 'stats' | 'cal' | 'profile' | 'history' | 'debts';
 
 export type PaymentMethod = 'money' | 'pix' | 'debit' | 'credit' | 'bank_slip';
 
@@ -168,6 +168,7 @@ export interface Transaction {
   v: number;
   n: string;
   notes?: string;
+  cardId?: string;
   c: Category;
   d: string;
   pay: PaymentMethod;
@@ -198,6 +199,55 @@ export interface FilteredTransactionsResult {
   balanceCents: number;
 }
 
+export interface CreditCard {
+  id: string;
+  name: string;
+  lastDigits?: string;
+  color: string;
+  limitCents: number;
+  closingDay: number;
+  dueDay: number;
+}
+
+export interface DebtPayment {
+  id: string;
+  amountCents: number;
+  date: string;
+  notes?: string;
+}
+
+export type DebtType = 'to_receive' | 'to_pay';
+
+export interface DebtRecord {
+  id: string;
+  personName: string;
+  type: DebtType;
+  originalAmountCents: number;
+  paidAmountCents: number;
+  payments: DebtPayment[];
+  description: string;
+  dueDate?: string;
+  status: 'active' | 'settled';
+  pixKey?: string;
+  createdAt: string;
+}
+
+export interface QuickShortcut {
+  id: string;
+  label: string;
+  amountCents: number;
+  categoryId: string;
+  paymentMethod: PaymentMethod;
+  cardId?: string;
+}
+
+export interface CardLimitUsage {
+  limitCents: number;
+  usedCents: number;
+  availableCents: number;
+  percent: number;
+}
+
 export interface AppState {
   name: string;
   theme: Theme;
@@ -208,4 +258,9 @@ export interface AppState {
   cats: CategoriesState;
   budgets: Record<string, CategoryBudget>;
   goalCents: number;
+  cards: CreditCard[];
+  debts: DebtRecord[];
+  quickShortcuts: QuickShortcut[];
+  hasCompletedOnboarding: boolean;
+  roundUpEnabled: boolean;
 }

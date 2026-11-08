@@ -2,7 +2,13 @@
    home.ts — Tela Inicial: Saldo, Meta de Economia, Gastos Pessoais, Orçamentos e Movimentações
    ========================================================================== */
 
-import { S, getCategoryBudgetsProgress, normalizePay, normalizeTags } from '../state';
+import {
+  S,
+  getCategoryBudgetsProgress,
+  getRoundUpTotal,
+  normalizePay,
+  normalizeTags
+} from '../state';
 import { getCategoryIcon, getPaymentLabel } from '../types/finance';
 import { brl, esc, sum } from '../utils/currency';
 import { now, cur, ym, prevM, dfmt } from '../utils/date';
@@ -93,6 +99,18 @@ export function home(): string {
     .slice(0, 6);
   const ch = (t: string, r = ''): string => `<div class="ch"><span>${t}</span>${r}</div>`;
 
+  const quickChips = S.quickShortcuts
+    .map(
+      (sc) =>
+        `<button type="button" class="quick-chip" data-quick="${esc(sc.id)}" aria-label="Registrar ${esc(sc.label)} por ${brl(sc.amountCents)}">${esc(sc.label)} <b class="num">${brl(sc.amountCents)}</b></button>`
+    )
+    .join('');
+  const quickBarHtml = `<div class="quick-bar wide" role="group" aria-label="Atalhos rápidos">${quickChips}<button type="button" class="quick-chip quick-add" data-shortcut-add>+ Adicionar atalho</button>${
+    S.roundUpEnabled
+      ? `<span class="pill pos" title="Cofrinho de arredondamento do mês">🐷 ${brl(getRoundUpTotal(m))}</span>`
+      : ''
+  }</div>`;
+
   const savedCents = Math.max(0, netMonth);
   const goalPct = S.goalCents > 0 ? Math.max(0, (savedCents / S.goalCents) * 100) : 0;
   const goalBarWidth = Math.min(100, goalPct).toFixed(0);
@@ -118,8 +136,9 @@ export function home(): string {
 
   return `<header class="wide"><h1>Olá, <b>${esc(S.name)}</b><div class="mut" style="font-size:.8rem;font-weight:500">${now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</div></h1>
 <div style="display:flex;gap:8px"><button class="ib" id="eye" aria-label="${S.hide ? 'Mostrar' : 'Ocultar'} valores" aria-pressed="${S.hide}">${S.hide ? '🙈' : '👁'}</button><button class="ib" data-v="profile" aria-label="Configurações">⚙</button></div></header>
-<section class="card bal wide">${ch('Saldo total')}<div class="cb"><div class="big num">${brl(bal)}</div>
+<section class="card bal wide" title="Toque duas vezes para ocultar/mostrar valores">${ch('Saldo total')}<div class="cb"><div class="big num">${brl(bal)}</div>
 <span class="pill ${chg == null ? '' : chg >= 0 ? 'pos' : 'neg'}">${chg == null ? 'Sem mês anterior para comparar' : (chg >= 0 ? '↑ +' : '↓ ') + chg.toFixed(0) + '% vs. mês passado'}</span></div></section>
+${quickBarHtml}
 <div class="acts wide"><button class="btn" data-add="out">− Registrar gasto</button><button class="btn p" data-add="in">+ Registrar ganho</button></div>
 ${goalCardHtml}
 <section class="card">${ch('Seus gastos', `<select id="per" aria-label="Período"><option value="0">Este mês</option><option value="1">Mês passado</option></select>`)}<div class="cb">

@@ -2,7 +2,7 @@
    form-modal.ts — Modal de Criação e Edição de Movimentações com Validações
    ========================================================================== */
 
-import { S, normalizePay, normalizeTag, normalizeTags } from '../state';
+import { S, findLastByName, normalizePay, normalizeTag, normalizeTags } from '../state';
 import {
   PAYMENT_METHODS,
   type Category,
@@ -10,8 +10,15 @@ import {
   type TransactionType
 } from '../types/finance';
 import { guessCategory } from '../utils/category-guesser';
-import { esc, parseCents } from '../utils/currency';
+import { brl, esc } from '../utils/currency';
+import { calculateInvoiceMonth, formatInvoiceLabel } from '../utils/credit-card';
 import { now } from '../utils/date';
+import {
+  centsToInput,
+  extractMoneyFromText,
+  looksLikeExpression,
+  parseAmountInput
+} from '../utils/qol';
 
 const $ = <T extends Element = HTMLElement>(s: string): T | null =>
   document.querySelector<T>(s);
@@ -111,7 +118,7 @@ export function syncRecurrenceAndInstallments(): void {
     frec.checked = false;
     frec.disabled = true;
     if (prev) {
-      const totalCents = parseCents(fv?.value);
+      const totalCents = parseAmountInput(fv?.value);
       const partCents = totalCents > 0 ? Math.floor(totalCents / parsedInst) : 5000;
       prev.textContent =
         totalCents > 0
@@ -140,6 +147,45 @@ export function syncThirdPartyVisibility(): void {
   if (nameWrap) {
     nameWrap.style.display = isOut && Boolean(ftp?.checked) ? 'grid' : 'none';
   }
+}
+
+/**
+ * Exibe o seletor de cartão quando a forma de pagamento é "Crédito" e informa a fatura de destino.
+ */
+export function syncCardSelector(): void {
+  const f = $<HTMLFormElement>('#f');
+  const wrap = $<HTMLElement>('#fcard-wrap');
+  const fpay = $<HTMLSelectElement>('#fpay');
+  const fcard = $<HTMLSelectElement>('#fcard');
+  const hint = $<HTMLElement>('#fcard-hint');
+  const fd = $<HTMLInputElement>('#fd');
+  const finst = $<HTMLInputElement>('#finst');
+  if (!wrap || !fpay || !fcard) return;
+
+  const visible = f?.dataset.type !== 'in' && fpay.value === 'credit' && S.cards.length > 0;
+  wrap.style.display = visible ? 'block' : 'none';
+  if (!visible || !hint) return;
+
+  const card = S.cards.find((c) => c.id === fcard.value);
+  if (!card || !fd?.value) {
+    hint.textContent = '';
+    return;
+  }
+  const label = formatInvoiceLabel(calculateInvoiceMonth(fd.value, card.closingDay));
+  const parcels = Math.floor(Number(finst?.value)) > 1 ? ' (parcelas seguem nas faturas seguintes)' : '';
+  hint.textContent = `Essa compra entrará na fatura de ${label}${parcels}`;
+}
+
+/**
+ * Atualiza a dica "Última vez em X: R$ Y" conforme o nome digitado em #fn.
+ */
+export function syncLastPaidHint(): void {
+  const fn = $<HTMLInputElement>('#fn');
+  const hint = $<HTMLElement>('#fn-hint');
+  const f = $<HTMLFormElement>('#f');
+  if (!fn || !hint) return;
+  const last = f?.dataset.type === 'in' ? null : findLastByName(fn.value, f?.dataset.txId);
+  hint.textContent = last ? `Última vez em ${last.n.replace(/\s*\(\d+\/\d+\)\s*$/, '')}: ${brl(last.v)}` : '';
 }
 
 /**
@@ -179,6 +225,8 @@ export function cats(selectedCat?: Category): void {
   );
 
   syncThirdPartyVisibility();
+  syncCardSelector();
+  syncLastPaidHint();
 }
 
 /**
@@ -195,13 +243,20 @@ export function openForm(
   const tx = txId != null ? S.tx.find((x) => String(x.id) === String(txId)) : null;
   const activeType: TransactionType = tx ? tx.type : type;
   const activePay: PaymentMethod = tx ? normalizePay(tx.pay) : 'money';
-  const valStr = tx ? (tx.v / 100).toFixed(2).replace('.', ',') : '';
+  const valStr = tx ? centsToInput(tx.v) : '';
   const descStr = tx ? tx.n : '';
   const dateStr = tx ? tx.d : defaultDate || now.toISOString().slice(0, 10);
   const isRecurring = Boolean(tx?.recurring);
   const instTotal = tx?.installments?.total && tx.installments.total > 1 ? tx.installments.total : 1;
   const isThirdParty = Boolean(tx?.thirdParty?.isThirdParty);
   const tpPersonName = tx?.thirdParty?.personName || '';
+
+  const cardOptions = S.cards
+    .map(
+      (c) =>
+        `<option value="${esc(c.id)}"${tx?.cardId === c.id ? ' selected' : ''}>${esc(c.name)}${c.lastDigits ? ` •••• ${esc(c.lastDigits)}` : ''}</option>`
+    )
+    .join('');
 
   currentTags = tx ? normalizeTags(tx.tags) : [];
   categoryManuallyChanged = Boolean(tx);
@@ -213,10 +268,11 @@ export function openForm(
 
   f.innerHTML = `<h2 id="dt" style="margin:0 0 4px;font-size:1.2rem">${tx ? 'Editar movimentação' : 'Nova movimentação'}</h2>
 <div class="seg" style="margin-top:10px"><button type="button" data-t="out" aria-pressed="${activeType === 'out'}">Gasto</button><button type="button" data-t="in" aria-pressed="${activeType === 'in'}">Ganho</button></div>
-<label>Valor (R$)<input id="fv" inputmode="decimal" placeholder="0,00" value="${esc(valStr)}" required autocomplete="off"></label>
-<label>Descrição<input id="fn" maxlength="60" required placeholder="Ex.: Almoço" value="${esc(descStr)}" autocomplete="off"></label>
+<label>Valor (R$) · aceita contas como 45+12,50<span class="fv-row"><input id="fv" inputmode="decimal" placeholder="0,00" value="${esc(valStr)}" required autocomplete="off"><button type="button" class="ib" id="fpaste" aria-label="Colar valor da área de transferência" title="Colar Pix / comprovante">📋</button></span></label>
+<label>Descrição<input id="fn" maxlength="60" required placeholder="Ex.: Almoço" value="${esc(descStr)}" autocomplete="off"><small id="fn-hint" class="mut" aria-live="polite"></small></label>
 <label>Categoria<select id="fc" style="padding:11px 12px"></select></label>
 <label>Forma de pagamento<select id="fpay" style="padding:11px 12px">${payOptions}</select></label>
+<div id="fcard-wrap" style="display:none"><label>Cartão<select id="fcard" style="padding:11px 12px">${cardOptions}</select></label><div id="fcard-hint" class="mut" style="font-size:.8rem;margin-top:4px" aria-live="polite"></div></div>
 <label>Data<input id="fd" type="date" value="${esc(dateStr)}" required></label>
 <div class="form-split-row"><label class="chk-row"><input id="frec" type="checkbox"${isRecurring ? ' checked' : ''}><span>Repetir mensalmente</span></label><label>Parcelas<input id="finst" type="number" min="1" max="72" value="${instTotal}"${isRecurring ? ' disabled' : ''}></label></div>
 <div id="finst-prev" class="mut" style="font-size:.8rem;margin-top:4px"></div>
@@ -240,6 +296,8 @@ export function openForm(
   renderFormTags();
   syncRecurrenceAndInstallments();
   syncThirdPartyVisibility();
+  syncCardSelector();
+  syncLastPaidHint();
 
   const fc = $<HTMLSelectElement>('#fc');
   if (fc && typeof fc.addEventListener === 'function') {
@@ -253,7 +311,23 @@ export function openForm(
     fv.addEventListener('input', () => {
       syncRecurrenceAndInstallments();
     });
+    fv.addEventListener('blur', () => {
+      if (!looksLikeExpression(fv.value)) return;
+      const cents = parseAmountInput(fv.value);
+      if (cents > 0) {
+        fv.value = centsToInput(cents);
+        syncRecurrenceAndInstallments();
+      }
+    });
   }
+
+  const fpay2 = $<HTMLSelectElement>('#fpay');
+  const fcard = $<HTMLSelectElement>('#fcard');
+  const fd = $<HTMLInputElement>('#fd');
+  fpay2?.addEventListener('change', syncCardSelector);
+  fcard?.addEventListener('change', syncCardSelector);
+  fd?.addEventListener('input', syncCardSelector);
+  fd?.addEventListener('change', syncCardSelector);
 
   const frec = $<HTMLInputElement>('#frec');
   if (frec && typeof frec.addEventListener === 'function') {
@@ -266,9 +340,11 @@ export function openForm(
   if (finst && typeof finst.addEventListener === 'function') {
     finst.addEventListener('input', () => {
       syncRecurrenceAndInstallments();
+      syncCardSelector();
     });
     finst.addEventListener('change', () => {
       syncRecurrenceAndInstallments();
+      syncCardSelector();
     });
   }
 
@@ -282,6 +358,7 @@ export function openForm(
   const fn = $<HTMLInputElement>('#fn');
   if (fn && typeof fn.addEventListener === 'function') {
     fn.addEventListener('input', () => {
+      syncLastPaidHint();
       if (categoryManuallyChanged) return;
       const currentType = (f.dataset.type === 'in' ? 'in' : 'out') as TransactionType;
       const available = S.cats[currentType] || [];
@@ -326,4 +403,23 @@ export function openForm(
     const fvEl = $<HTMLInputElement>('#fv');
     if (fvEl) fvEl.focus();
   }, 50);
+}
+
+/**
+ * Lê o clipboard e preenche #fv com o primeiro valor monetário encontrado.
+ * Retorna true quando um valor foi aplicado.
+ */
+export async function pasteAmountFromClipboard(): Promise<boolean> {
+  if (!navigator.clipboard || typeof navigator.clipboard.readText !== 'function') return false;
+  try {
+    const text = await navigator.clipboard.readText();
+    const cents = extractMoneyFromText(text);
+    const fv = $<HTMLInputElement>('#fv');
+    if (cents === null || !fv) return false;
+    fv.value = centsToInput(cents);
+    syncRecurrenceAndInstallments();
+    return true;
+  } catch {
+    return false;
+  }
 }
