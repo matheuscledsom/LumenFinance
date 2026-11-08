@@ -1,5 +1,5 @@
 /* ==========================================================================
-   types/finance.ts — Contratos de Domínio Financeiro, Categorias, Orçamentos e Transações
+   types/finance.ts — Contratos de Domínio Financeiro, Categorias, Orçamentos e Calendário
    ========================================================================== */
 
 export type Theme = 'oled' | 'white' | 'grey' | 'xp';
@@ -39,6 +39,24 @@ export interface MonthSummary {
   totalPersonalExpenseCents: number;
   totalThirdPartyExpenseCents: number;
   netSavingsCents: number;
+}
+
+export interface DaySummary {
+  dateStr: string;
+  dayNumber: number;
+  isCurrentMonth: boolean;
+  isToday: boolean;
+  totalExpenseCents: number;
+  totalIncomeCents: number;
+  hasPendingBills: boolean;
+  isNoSpendDay: boolean;
+  transactions: Transaction[];
+}
+
+export interface UpcomingBill {
+  tx: Transaction;
+  daysUntilDue: number;
+  isOverdue: boolean;
 }
 
 export interface CategoryItem {

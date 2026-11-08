@@ -1,5 +1,5 @@
 /* ==========================================================================
-   state.ts — Estado Central (S), Persistência, Categorias, Orçamentos, Parcelas e Estatísticas
+   state.ts — Estado Central (S), Persistência, Categorias, Orçamentos, Parcelas e Calendário
    ========================================================================== */
 
 import {
@@ -12,6 +12,7 @@ import {
   type Category,
   type CategoryBudget,
   type CategoryItem,
+  type DaySummary,
   type InstallmentInfo,
   type MonthSummary,
   type PaymentMethod,
@@ -21,9 +22,19 @@ import {
   type Transaction,
   type TransactionStatus,
   type TransactionType,
+  type UpcomingBill,
   type ViewName
 } from './types/finance';
-import { addMonthsClamped, cur, dateInMonthClamped, prevM, ym } from './utils/date';
+import {
+  addMonthsClamped,
+  cur,
+  dateInMonthClamped,
+  getMonthCalendarMatrix,
+  now,
+  prevM,
+  toIsoDate,
+  ym
+} from './utils/date';
 
 export const K = 'lumen.v1';
 
@@ -459,6 +470,17 @@ export const toggleReimbursement = (txId: string): void => {
 };
 
 /**
+ * Confirma (quita) uma transação pendente (status = 'confirmed') e persiste.
+ */
+export const confirmTransaction = (txId: string): boolean => {
+  const item = S.tx.find((t) => String(t.id) === String(txId));
+  if (!item) return false;
+  item.status = 'confirmed';
+  save();
+  return true;
+};
+
+/**
  * Calcula o histórico consolidado dos últimos 6 meses (ordem cronológica) para o painel de Estatísticas.
  */
 export const getSemesterHistory = (referenceMonth: string = cur): MonthSummary[] => {
@@ -490,6 +512,90 @@ export const getSemesterHistory = (referenceMonth: string = cur): MonthSummary[]
     });
   }
   return summaries;
+};
+
+/**
+ * Retorna os dados diários (DaySummary[]) da grade completa de um mês (35 ou 42 dias).
+ * Despesas de terceiros já quitadas não contam como despesa do dia.
+ * Marca isNoSpendDay apenas para dias passados até hoje do mês exibido sem despesas pessoais.
+ */
+export const getCalendarDays = (year: number, month: number): DaySummary[] => {
+  const matrix = getMonthCalendarMatrix(year, month);
+  const todayStr = toIsoDate(now);
+
+  return matrix.map((dateObj): DaySummary => {
+    const dateStr = toIsoDate(dateObj);
+    const dayNumber = dateObj.getDate();
+    const isCurrentMonth =
+      dateObj.getFullYear() === year && dateObj.getMonth() === month - 1;
+    const isToday = dateStr === todayStr;
+
+    const transactions = S.tx.filter((t) => t.d === dateStr);
+
+    const totalExpenseCents = transactions
+      .filter(
+        (t) =>
+          t.type === 'out' &&
+          !(t.thirdParty?.isThirdParty && t.thirdParty.isReimbursed)
+      )
+      .reduce((acc, t) => acc + t.v, 0);
+
+    const personalExpenseCents = transactions
+      .filter((t) => t.type === 'out' && !t.thirdParty?.isThirdParty)
+      .reduce((acc, t) => acc + t.v, 0);
+
+    const totalIncomeCents = transactions
+      .filter((t) => t.type === 'in')
+      .reduce((acc, t) => acc + t.v, 0);
+
+    const hasPendingBills = transactions.some(
+      (t) => t.type === 'out' && t.status === 'pending'
+    );
+
+    const isNoSpendDay =
+      isCurrentMonth &&
+      dateStr <= todayStr &&
+      totalExpenseCents === 0 &&
+      personalExpenseCents === 0;
+
+    return {
+      dateStr,
+      dayNumber,
+      isCurrentMonth,
+      isToday,
+      totalExpenseCents,
+      totalIncomeCents,
+      hasPendingBills,
+      isNoSpendDay,
+      transactions
+    };
+  });
+};
+
+/**
+ * Retorna contas a vencer (status === 'pending') vencidas ou dentro dos próximos limitDays dias.
+ */
+export const getUpcomingBills = (limitDays = 7): UpcomingBill[] => {
+  const todayStr = toIsoDate(now);
+  const todayNoon = new Date(todayStr + 'T12:00:00').getTime();
+
+  const bills: UpcomingBill[] = [];
+  for (const tx of S.tx) {
+    if (tx.type !== 'out' || tx.status !== 'pending') continue;
+    const dueNoon = new Date(tx.d + 'T12:00:00').getTime();
+    if (Number.isNaN(dueNoon)) continue;
+
+    const daysUntilDue = Math.round((dueNoon - todayNoon) / 864e5);
+    if (daysUntilDue <= limitDays) {
+      bills.push({
+        tx,
+        daysUntilDue,
+        isOverdue: daysUntilDue < 0
+      });
+    }
+  }
+
+  return bills.sort((a, b) => a.daysUntilDue - b.daysUntilDue);
 };
 
 /**

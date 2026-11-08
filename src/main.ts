@@ -13,6 +13,7 @@ import {
   createInstallments,
   materializeRecurring,
   toggleReimbursement,
+  confirmTransaction,
   addCategory,
   removeCategory,
   setCategoryBudget,
@@ -33,7 +34,13 @@ import type {
 import { lum, con, parseCents } from './utils/currency';
 import { home } from './components/home';
 import { stats } from './components/stats';
-import { calendar } from './components/calendar';
+import {
+  calendar,
+  stepCalMonth,
+  goCalToday,
+  selectCalDate,
+  selectedDateStr
+} from './components/calendar';
 import { profile, profileCatTab, setProfileCatTab } from './components/profile';
 import {
   openForm,
@@ -138,6 +145,44 @@ document.addEventListener('click', (e: MouseEvent) => {
     return;
   }
 
+  if ((b = g('[data-confirm-tx]'))) {
+    e.stopPropagation();
+    const txId = b.dataset.confirmTx;
+    if (txId) {
+      confirmTransaction(txId);
+      render();
+      toast('Conta marcada como paga!');
+    }
+    return;
+  }
+
+  if (g('#cal-prev')) {
+    stepCalMonth(-1);
+    render();
+    return;
+  }
+
+  if (g('#cal-next')) {
+    stepCalMonth(1);
+    render();
+    return;
+  }
+
+  if (g('#cal-today')) {
+    goCalToday();
+    render();
+    return;
+  }
+
+  if ((b = g('[data-cal-date]'))) {
+    const dt = b.dataset.calDate;
+    if (dt) {
+      selectCalDate(dt);
+      render();
+    }
+    return;
+  }
+
   if ((b = g('[data-rm-tag]'))) {
     const tag = b.dataset.rmTag;
     if (tag) removeFormTag(tag);
@@ -193,11 +238,11 @@ document.addEventListener('click', (e: MouseEvent) => {
 
   if ((b = g('[data-add]'))) {
     const addType: TransactionType = b.dataset.add === 'in' ? 'in' : 'out';
-    openForm(addType);
+    openForm(addType, null, view === 'cal' ? selectedDateStr : undefined);
     return;
   }
   if (g('#fab')) {
-    openForm('out');
+    openForm('out', null, view === 'cal' ? selectedDateStr : undefined);
     return;
   }
   if ((b = g('[data-v]'))) {

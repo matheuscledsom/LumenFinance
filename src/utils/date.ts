@@ -1,9 +1,17 @@
 /* ==========================================================================
-   date.ts — Manipulação e Formatação de Datas ISO
+   date.ts — Manipulação, Matrizes de Calendário e Formatação de Datas ISO
    ========================================================================== */
 
 export const now: Date = new Date();
 export const cur: string = now.toISOString().slice(0, 7);
+
+/**
+ * Converte um objeto Date para string ISO 'YYYY-MM-DD' no fuso local.
+ */
+export const toIsoDate = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate()
+  ).padStart(2, '0')}`;
 
 /**
  * Extrai o ano-mês (YYYY-MM) de uma string de data ISO.
@@ -53,6 +61,23 @@ export const dateInMonthClamped = (originalDateIso: string, targetYm: string): s
   const maxDay = new Date(ty, tm, 0).getDate();
   const clampedDay = Math.min(origDay, maxDay);
   return `${targetYm}-${String(clampedDay).padStart(2, '0')}`;
+};
+
+/**
+ * Retorna a matriz de 35 ou 42 objetos Date para exibir o mês completo (month 1..12)
+ * alinhado de domingo (0) a sábado (6).
+ */
+export const getMonthCalendarMatrix = (year: number, month: number): Date[] => {
+  const firstDay = new Date(year, month - 1, 1, 12, 0, 0);
+  const startDayOfWeek = firstDay.getDay();
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const totalCells = startDayOfWeek + daysInMonth > 35 ? 42 : 35;
+
+  const matrix: Date[] = [];
+  for (let i = 0; i < totalCells; i++) {
+    matrix.push(new Date(year, month - 1, 1 - startDayOfWeek + i, 12, 0, 0));
+  }
+  return matrix;
 };
 
 /**

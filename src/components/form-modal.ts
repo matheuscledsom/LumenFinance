@@ -184,7 +184,11 @@ export function cats(selectedCat?: Category): void {
 /**
  * Abre o modal de movimentação para criação (txId = null) ou edição (txId fornecido).
  */
-export function openForm(type: TransactionType, txId: string | null = null): void {
+export function openForm(
+  type: TransactionType,
+  txId: string | null = null,
+  defaultDate?: string
+): void {
   const f = $<HTMLFormElement>('#f');
   if (!f) return;
 
@@ -193,7 +197,7 @@ export function openForm(type: TransactionType, txId: string | null = null): voi
   const activePay: PaymentMethod = tx ? normalizePay(tx.pay) : 'money';
   const valStr = tx ? (tx.v / 100).toFixed(2).replace('.', ',') : '';
   const descStr = tx ? tx.n : '';
-  const dateStr = tx ? tx.d : now.toISOString().slice(0, 10);
+  const dateStr = tx ? tx.d : defaultDate || now.toISOString().slice(0, 10);
   const isRecurring = Boolean(tx?.recurring);
   const instTotal = tx?.installments?.total && tx.installments.total > 1 ? tx.installments.total : 1;
   const isThirdParty = Boolean(tx?.thirdParty?.isThirdParty);
