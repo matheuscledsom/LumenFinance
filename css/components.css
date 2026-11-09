@@ -1201,10 +1201,11 @@ input {
 
 .account-pill {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 99px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: var(--r);
   background: var(--card);
   border: 1px solid var(--bd);
   font-size: .8rem;
@@ -1213,9 +1214,307 @@ input {
   box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
 }
 
+.acc-pill-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .82rem;
+}
+
+.acc-pill-sub {
+  font-size: .7rem;
+  display: flex;
+  gap: 4px;
+}
+
+.acc-custody {
+  color: var(--pos);
+}
+
 .account-pill .acc-name {
   color: var(--mut);
   font-weight: 500;
+}
+
+/* Indicadores do Topo da Home (Saldo Livre, Custódia, Faturas) */
+.home-top-indicators {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+  margin-bottom: 2px;
+}
+
+.indicator-chip {
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: var(--r);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .05);
+}
+
+.indicator-chip.warning {
+  border-color: var(--neg);
+  background: rgba(239, 68, 68, .06);
+}
+
+.chip-label {
+  font-size: .72rem;
+  color: var(--mut);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chip-val {
+  font-size: .95rem;
+  font-weight: 700;
+  color: var(--tx);
+}
+
+.chip-warn-badge {
+  font-size: .65rem;
+  color: var(--neg);
+  font-weight: 700;
+}
+
+/* Hub de Cartões & Contas */
+.bank-accounts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.bank-account-card {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bank-account-card.warning-border {
+  border-color: var(--neg);
+}
+
+.bank-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.bank-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bank-card-icon {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 1.1rem;
+}
+
+.bank-card-menu {
+  display: flex;
+  gap: 4px;
+}
+
+.bank-balances-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+  border-top: 1px solid var(--bd);
+  border-bottom: 1px solid var(--bd);
+}
+
+.bank-balance-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: .84rem;
+}
+
+.bank-balance-row.main b {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--ac);
+}
+
+.bank-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.btn-icon-choice {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+}
+
+.btn-icon-choice.active {
+  border-color: var(--ac);
+  background: var(--ac);
+  color: var(--on);
+}
+
+/* Meus Cartões de Crédito */
+.credit-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.credit-card-box {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.credit-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.credit-card-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-color-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.credit-card-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.card-limit-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.card-limit-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: .78rem;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.card-limit-bar {
+  height: 8px;
+  background: var(--bd);
+  border-radius: 99px;
+  overflow: hidden;
+  position: relative;
+}
+
+.card-limit-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+}
+
+.card-limit-warning {
+  font-size: .74rem;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.invoice-nav-container {
+  border-top: 1px solid var(--bd);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.invoice-nav-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.invoice-month-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: .88rem;
+}
+
+.invoice-summary-box {
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.invoice-breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: .84rem;
+}
+
+.invoice-breakdown-row.sub {
+  font-size: .78rem;
+  color: var(--mut);
+}
+
+.invoice-action-bar {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--bd);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.invoice-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.invoice-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: .82rem;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--bd);
+}
+
+.invoice-item:last-child {
+  border-bottom: none;
 }
 
 /* Card de Faturas e Compromissos do Mês com barra segmentada */
@@ -1752,6 +2051,26 @@ input {
   color: #fff;
 }
 
+[data-theme="xp"] .indicator-chip,
+[data-theme="xp"] .bank-account-card,
+[data-theme="xp"] .credit-card-box,
+[data-theme="xp"] .invoice-summary-box,
+[data-theme="xp"] .pay-invoice-breakdown {
+  border-radius: 4px;
+  border-color: #7f9db9;
+  background: #fff;
+  color: #111;
+}
+
+[data-theme="xp"] .card-limit-bar {
+  background: #e3e1d2;
+  border-radius: 2px;
+}
+
+[data-theme="xp"] .card-limit-bar-fill {
+  border-radius: 2px;
+}
+
 [data-theme="xp"] .vcard {
   border-radius: 6px;
   border: 2px solid #003c74;
@@ -1833,7 +2152,8 @@ input {
     }
   }
 
-  .prog-fill {
+  .prog-fill,
+  .card-limit-bar-fill {
     transition: width .25s ease, background-color .2s;
   }
 }

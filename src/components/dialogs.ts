@@ -4,11 +4,15 @@
 
 import {
   S,
+  addAccount,
   addCard,
   addDebt,
   addShortcut,
+  adjustAccountBalance,
   amortizeDebt,
   debtRemaining,
+  transferBetweenAccounts,
+  updateAccount,
   updateCard
 } from '../state';
 import {
@@ -16,10 +20,20 @@ import {
   type DebtType,
   type PaymentMethod
 } from '../types/finance';
+import { payCardInvoice } from '../utils/credit-card';
 import { brlPlain, esc } from '../utils/currency';
 import { centsToInput, parseAmountInput } from '../utils/qol';
 
-export type Dialog2Kind = 'shortcut' | 'debt' | 'amortize' | 'card';
+export type Dialog2Kind =
+  | 'shortcut'
+  | 'debt'
+  | 'amortize'
+  | 'card'
+  | 'transfer'
+  | 'adjust_balance'
+  | 'account'
+  | 'pay_invoice'
+  | 'settle-all';
 
 export interface DialogResult {
   ok: boolean;
@@ -186,10 +200,86 @@ export function submitDialog2(form: HTMLFormElement): DialogResult {
   if (kind === 'amortize' && entityId) {
     const cents = parseAmountInput(val('#am-v'));
     if (!(cents > 0)) return { ok: false, message: 'Informe um valor maior que zero.' };
-    const asIncome = Boolean($<HTMLInputElement>('#am-income')?.checked);
-    amortizeDebt(entityId, cents, asIncome);
+    const accId = val('#am-account') || undefined;
+    const source =
+      (val('#am-funding-source') as 'my_account' | 'third_party_custody' | 'external') ||
+      'my_account';
+    amortizeDebt(entityId, cents, false, accId, source);
     const settled = S.debts.find((d) => d.id === entityId)?.status === 'settled';
     return { ok: true, message: settled ? 'Dívida quitada! 🎉' : 'Pagamento registrado' };
+  }
+
+  if (kind === 'transfer') {
+    const fromId = val('#tr-from');
+    const toId = val('#tr-to');
+    const cents = parseAmountInput(val('#tr-v'));
+    const date = val('#tr-d');
+    const desc = val('#tr-desc');
+    if (!fromId || !toId || fromId === toId) {
+      return { ok: false, message: 'Selecione duas contas diferentes.' };
+    }
+    if (!(cents > 0)) {
+      return { ok: false, message: 'Informe um valor maior que zero.' };
+    }
+    const res = transferBetweenAccounts(fromId, toId, cents, date, desc);
+    if (!res) return { ok: false, message: 'Não foi possível realizar a transferência.' };
+    return { ok: true, message: 'Transferência realizada com sucesso!' };
+  }
+
+  if (kind === 'adjust_balance' && entityId) {
+    const cents = parseAmountInput(val('#adj-v'));
+    const ok = adjustAccountBalance(entityId, cents);
+    if (!ok) return { ok: false, message: 'Conta não encontrada.' };
+    return { ok: true, message: 'Saldo real ajustado com sucesso!' };
+  }
+
+  if (kind === 'account') {
+    const name = val('#acc-name').trim();
+    if (!name) return { ok: false, message: 'Informe o nome da conta.' };
+    const icon = val('#acc-icon').trim() || '🏦';
+    const color = val('#acc-color').trim() || '#8b5cf6';
+    const isDefault = Boolean($<HTMLInputElement>('#acc-default')?.checked);
+    if (entityId) {
+      updateAccount(entityId, { name, icon, color, isDefault });
+      return { ok: true, message: 'Conta atualizada com sucesso!' };
+    } else {
+      const initCents = parseAmountInput(val('#acc-init'));
+      const acc = addAccount(name, icon, color, initCents);
+      if (isDefault) updateAccount(acc.id, { isDefault: true });
+      return { ok: true, message: 'Conta criada com sucesso!' };
+    }
+  }
+
+  if (kind === 'pay_invoice') {
+    const cardId = form.dataset.cardId || '';
+    const monthYear = form.dataset.monthYear || '';
+    if (!cardId || !monthYear) return { ok: false, message: 'Fatura não identificada.' };
+
+    const totalPaidCents = parseAmountInput(val('#inv-paid-v'));
+    if (!(totalPaidCents > 0)) {
+      return { ok: false, message: 'Informe um valor pago maior que zero.' };
+    }
+
+    const radioMode =
+      form.querySelector<HTMLInputElement>('input[name="inv-mode"]:checked')?.value ||
+      'my_account';
+    const isExternal = radioMode === 'external';
+
+    const useCustodyChk = Boolean($<HTMLInputElement>('#inv-use-custody')?.checked);
+    const custodyVal = useCustodyChk ? parseAmountInput(val('#inv-custody-val')) : 0;
+    const paidFromAccountId = !isExternal ? val('#inv-account') : undefined;
+
+    const res = payCardInvoice({
+      cardId,
+      monthYear,
+      totalPaidCents,
+      useThirdPartyCustodyCents: custodyVal,
+      paidFromAccountId,
+      isExternalThirdParty: isExternal
+    });
+
+    if (!res) return { ok: false, message: 'Não foi possível registrar o pagamento da fatura.' };
+    return { ok: true, message: 'Fatura paga com sucesso! 🎉' };
   }
 
   if (kind === 'card') {

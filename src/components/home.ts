@@ -12,7 +12,7 @@ import {
 } from '../state';
 import { getCategoryIcon, getPaymentLabel } from '../types/finance';
 import { brl, esc, sum } from '../utils/currency';
-import { getHomeCommitmentsBreakdown } from '../utils/credit-card';
+import { getCardDetailedInvoice, getHomeCommitmentsBreakdown } from '../utils/credit-card';
 import { now, cur, ym, prevM, dfmt } from '../utils/date';
 
 export function home(): string {
@@ -102,12 +102,65 @@ export function home(): string {
   const ch = (t: string, r = ''): string => `<div class="ch"><span>${t}</span>${r}</div>`;
 
   const accountBalances = getAccountBalances();
+
+  const totalPersonalBalanceCents = accountBalances.reduce(
+    (acc, a) => acc + a.personalBalanceCents,
+    0
+  );
+  const totalCustodyCents = accountBalances.reduce(
+    (acc, a) => acc + a.thirdPartyCustodyCents,
+    0
+  );
+  const isAnyNearZero = accountBalances.some((a) => a.isNearZero);
+
+  const totalInvoicesRemainingCents = S.cards.reduce((acc, c) => {
+    const detailed = getCardDetailedInvoice(c.id, m);
+    return acc + detailed.remainingCents;
+  }, 0);
+
+  const topIndicatorsHtml = `
+    <div class="home-top-indicators wide" role="group" aria-label="Indicadores principais">
+      <div class="indicator-chip${isAnyNearZero ? ' warning' : ''}" title="Soma do saldo líquido próprio disponível para débito/pix">
+        <span class="chip-label">💵 Saldo Livre (Débito)</span>
+        <b class="chip-val num ${totalPersonalBalanceCents >= 0 ? '' : 'neg'}">${S.hide ? '••••' : brl(totalPersonalBalanceCents)}</b>
+        ${isAnyNearZero ? '<span class="chip-warn-badge">⚠️ Saldo Baixo</span>' : ''}
+      </div>
+      <div class="indicator-chip" title="Dinheiro de amigos/terceiros guardado em custódia">
+        <span class="chip-label">🤝 Custódia de Terceiros</span>
+        <b class="chip-val num">${S.hide ? '••••' : brl(totalCustodyCents)}</b>
+      </div>
+      <div class="indicator-chip" title="Soma das faturas em aberto no mês atual">
+        <span class="chip-label">💳 Total em Faturas</span>
+        <b class="chip-val num ${totalInvoicesRemainingCents > 0 ? 'neg' : ''}">${S.hide ? '••••' : brl(totalInvoicesRemainingCents)}</b>
+      </div>
+    </div>`;
+
   const accountPillsHtml = accountBalances.length
     ? `<div class="account-pills-bar wide" role="group" aria-label="Saldos por conta">${accountBalances
-        .map(({ account, currentBalanceCents }) => {
-          const formatted = S.hide ? '••••' : brl(currentBalanceCents);
-          return `<span class="account-pill" title="Saldo na conta ${esc(account.name)}">${esc(account.icon)} <span class="acc-name">${esc(account.name)}:</span> <b class="num ${currentBalanceCents >= 0 ? '' : 'neg'}">${formatted}</b></span>`;
-        })
+        .map(
+          ({
+            account,
+            totalBankBalanceCents,
+            personalBalanceCents,
+            thirdPartyCustodyCents
+          }) => {
+            const totalFormatted = S.hide ? '••••' : brl(totalBankBalanceCents);
+            const personalFormatted = S.hide ? '••••' : brl(personalBalanceCents);
+            const custodyFormatted = S.hide ? '••••' : brl(thirdPartyCustodyCents);
+            const custodyPart =
+              thirdPartyCustodyCents > 0
+                ? `<span class="acc-custody" title="Dinheiro de terceiros em custódia"> · 🤝 ${custodyFormatted}</span>`
+                : '';
+            return `<div class="account-pill" title="Conta ${esc(account.name)}">
+              <div class="acc-pill-top">
+                ${esc(account.icon)} <span class="acc-name">${esc(account.name)}:</span> <b class="num ${totalBankBalanceCents >= 0 ? '' : 'neg'}">${totalFormatted}</b>
+              </div>
+              <div class="acc-pill-sub mut">
+                <span>Livre: <b>${personalFormatted}</b></span>${custodyPart}
+              </div>
+            </div>`;
+          }
+        )
         .join('')}</div>`
     : '';
 
@@ -208,6 +261,7 @@ export function home(): string {
 <div style="display:flex;gap:8px"><button class="ib" id="eye" aria-label="${S.hide ? 'Mostrar' : 'Ocultar'} valores" aria-pressed="${S.hide}">${S.hide ? '🙈' : '👁'}</button><button class="ib" data-v="profile" aria-label="Configurações">⚙</button></div></header>
 <section class="card bal wide" title="Toque duas vezes para ocultar/mostrar valores">${ch('Saldo total')}<div class="cb"><div class="big num">${brl(bal)}</div>
 <span class="pill ${chg == null ? '' : chg >= 0 ? 'pos' : 'neg'}">${chg == null ? 'Sem mês anterior para comparar' : (chg >= 0 ? '↑ +' : '↓ ') + chg.toFixed(0) + '% vs. mês passado'}</span></div></section>
+${topIndicatorsHtml}
 ${accountPillsHtml}
 ${quickBarHtml}
 <div class="acts wide"><button class="btn" data-add="out">− Registrar gasto</button><button class="btn p" data-add="in">+ Registrar ganho</button></div>

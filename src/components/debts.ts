@@ -41,19 +41,14 @@ export const buildWhatsAppLink = (debt: DebtRecord): string =>
   `https://wa.me/?text=${encodeURIComponent(buildCollectionMessage(debt))}`;
 
 /**
- * Abre o formulário de amortização / quitação de dívida permitindo escolher a conta bancária.
+ * Abre o formulário de amortização / quitação de dívida com liquidação consciente de custódia e contas.
  */
 export function openAmortizeWithAccount(debtId: string): void {
   const debt = S.debts.find((d) => d.id === debtId);
   if (!debt) return;
   const remaining = debtRemaining(debt);
   const isToReceive = debt.type === 'to_receive';
-  const labelTx = isToReceive
-    ? 'Registrar como ganho no saldo'
-    : 'Registrar saída no extrato';
-  const accLabel = isToReceive
-    ? 'Em qual conta o dinheiro entrou?'
-    : 'De qual conta o dinheiro saiu?';
+
   const accOptions = S.accounts
     .map(
       (a) =>
@@ -65,19 +60,39 @@ export function openAmortizeWithAccount(debtId: string): void {
   if (!f) return;
   f.dataset.kind = 'amortize';
   f.dataset.entityId = debtId;
+
+  const contentHtml = isToReceive
+    ? `<label class="mut" style="font-size:.78rem;margin:10px 0 4px">Em qual conta o dinheiro caiu?
+        <select id="am-account" style="padding:10px 12px;margin-top:4px">${accOptions}</select>
+      </label>
+      <div style="margin-top:10px;padding:8px 10px;background:var(--card);border:1px solid var(--bd);border-radius:var(--r);font-size:.78rem;line-height:1.4">
+        💡 <b>Custódia de Terceiros:</b> O valor entrará nesta conta como dinheiro guardado de amigos, permitindo abater faturas futuras sem inflar seus Ganhos Pessoais do mês.
+      </div>`
+    : `<label class="mut" style="font-size:.78rem;margin:10px 0 4px">Origem dos recursos:
+        <select id="am-funding-source" style="padding:10px 12px;margin-top:4px">
+          <option value="my_account">Minha Conta Bancária</option>
+          <option value="third_party_custody">Abater da Custódia de Terceiros</option>
+          <option value="external">Paguei por fora (Dinheiro externo)</option>
+        </select>
+      </label>
+      <div id="am-acc-wrap" style="margin-top:8px">
+        <label class="mut" style="font-size:.78rem;margin:0 0 4px">De qual conta o dinheiro saiu?
+          <select id="am-account" style="padding:10px 12px;margin-top:4px">${accOptions}</select>
+        </label>
+      </div>`;
+
   f.innerHTML = `<h2 id="dt2" style="margin:0 0 4px;font-size:1.2rem">${isToReceive ? 'Receber valor' : 'Pagar valor'}</h2>
 <div class="mut" style="font-size:.88rem">${esc(debt.personName)} · restam <b>${brlPlain(remaining)}</b> de ${brlPlain(debt.originalAmountCents)}</div>
-<label>Valor (R$)<input id="am-v" inputmode="decimal" placeholder="${esc(centsToInput(remaining))}" value="${esc(centsToInput(remaining))}" required autocomplete="off"></label>
+<label style="margin-top:10px">Valor (R$)<input id="am-v" inputmode="decimal" placeholder="${esc(centsToInput(remaining))}" value="${esc(centsToInput(remaining))}" required autocomplete="off"></label>
 <button type="button" class="link-btn" id="am-fill-max" data-fill-remaining="${esc(centsToInput(remaining))}" style="margin-top:8px;justify-self:start">Quitar tudo (${brlPlain(remaining)})</button>
-<label class="chk-row" style="margin-top:10px"><input id="am-income" type="checkbox" checked><span>${esc(labelTx)}</span></label>
-<div id="am-acc-wrap" style="margin-top:8px"><label class="mut" style="font-size:.78rem;margin:0 0 4px">${esc(accLabel)}<select id="am-account" style="padding:10px 12px;margin-top:4px">${accOptions}</select></label></div>
+${contentHtml}
 <div id="f2e" class="neg" role="alert" style="margin-top:8px;font-size:.85rem"></div>
 <div style="display:flex;gap:10px;margin-top:14px"><button type="button" class="btn" data-close-dlg2 style="flex:1">Cancelar</button><button class="btn p" style="flex:1">Salvar</button></div>`;
 
-  const chk = f.querySelector<HTMLInputElement>('#am-income');
+  const sourceSelect = f.querySelector<HTMLSelectElement>('#am-funding-source');
   const accWrap = f.querySelector<HTMLElement>('#am-acc-wrap');
-  chk?.addEventListener('change', () => {
-    if (accWrap) accWrap.style.display = chk.checked ? 'block' : 'none';
+  sourceSelect?.addEventListener('change', () => {
+    if (accWrap) accWrap.style.display = sourceSelect.value === 'my_account' ? 'block' : 'none';
   });
 
   const fillBtn = f.querySelector<HTMLButtonElement>('#am-fill-max');
@@ -106,12 +121,6 @@ export function openSettleAllDialog(personName: string, debtType: DebtType): voi
   if (!(totalRemaining > 0)) return;
 
   const isToReceive = debtType === 'to_receive';
-  const labelTx = isToReceive
-    ? 'Registrar como ganho no saldo'
-    : 'Registrar saída no extrato';
-  const accLabel = isToReceive
-    ? 'Em qual conta o dinheiro entrou?'
-    : 'De qual conta o dinheiro saiu?';
   const accOptions = S.accounts
     .map(
       (a) =>
@@ -124,18 +133,38 @@ export function openSettleAllDialog(personName: string, debtType: DebtType): voi
   f.dataset.kind = 'settle-all';
   f.dataset.settlePerson = personName;
   f.dataset.settleType = debtType;
+
+  const contentHtml = isToReceive
+    ? `<label class="mut" style="font-size:.78rem;margin:10px 0 4px">Em qual conta o dinheiro entrou?
+        <select id="st-account" style="padding:10px 12px;margin-top:4px">${accOptions}</select>
+      </label>
+      <div style="margin-top:10px;padding:8px 10px;background:var(--card);border:1px solid var(--bd);border-radius:var(--r);font-size:.78rem;line-height:1.4">
+        💡 <b>Custódia de Terceiros:</b> O valor total entrará nesta conta como dinheiro guardado de amigos, permitindo abater faturas futuras sem inflar seus Ganhos Pessoais do mês.
+      </div>`
+    : `<label class="mut" style="font-size:.78rem;margin:10px 0 4px">Origem dos recursos:
+        <select id="st-funding-source" style="padding:10px 12px;margin-top:4px">
+          <option value="my_account">Minha Conta Bancária</option>
+          <option value="third_party_custody">Abater da Custódia de Terceiros</option>
+          <option value="external">Paguei por fora (Dinheiro externo)</option>
+        </select>
+      </label>
+      <div id="st-acc-wrap" style="margin-top:8px">
+        <label class="mut" style="font-size:.78rem;margin:0 0 4px">De qual conta o dinheiro saiu?
+          <select id="st-account" style="padding:10px 12px;margin-top:4px">${accOptions}</select>
+        </label>
+      </div>`;
+
   f.innerHTML = `<h2 id="dt2" style="margin:0 0 4px;font-size:1.2rem">Liquidar tudo de ${esc(personName)}</h2>
 <div class="mut" style="font-size:.88rem">${activeDebts.length} ${activeDebts.length === 1 ? 'conta pendente' : 'contas pendentes'} · Total: <b class="${isToReceive ? 'pos' : 'neg'}">${brl(totalRemaining)}</b></div>
 <div style="font-size:.82rem;margin-top:10px;line-height:1.4">Esta ação quitará simultaneamente todas as contas ativas deste contato no valor total de <b>${brl(totalRemaining)}</b>.</div>
-<label class="chk-row" style="margin-top:12px"><input id="st-ledger" type="checkbox" checked><span>${esc(labelTx)}</span></label>
-<div id="st-acc-wrap" style="margin-top:8px"><label class="mut" style="font-size:.78rem;margin:0 0 4px">${esc(accLabel)}<select id="st-account" style="padding:10px 12px;margin-top:4px">${accOptions}</select></label></div>
+${contentHtml}
 <div id="f2e" class="neg" role="alert" style="margin-top:8px;font-size:.85rem"></div>
 <div style="display:flex;gap:10px;margin-top:14px"><button type="button" class="btn" data-close-dlg2 style="flex:1">Cancelar</button><button class="btn p" style="flex:1">Confirmar Liquidação</button></div>`;
 
-  const chk = f.querySelector<HTMLInputElement>('#st-ledger');
+  const sourceSelect = f.querySelector<HTMLSelectElement>('#st-funding-source');
   const accWrap = f.querySelector<HTMLElement>('#st-acc-wrap');
-  chk?.addEventListener('change', () => {
-    if (accWrap) accWrap.style.display = chk.checked ? 'block' : 'none';
+  sourceSelect?.addEventListener('change', () => {
+    if (accWrap) accWrap.style.display = sourceSelect.value === 'my_account' ? 'block' : 'none';
   });
 
   const dlg2 = document.querySelector<HTMLDialogElement>('#dlg2');
@@ -291,11 +320,12 @@ if (typeof document !== 'undefined') {
         e.stopPropagation();
         const person = form.dataset.settlePerson || '';
         const debtType = (form.dataset.settleType as DebtType) || 'to_receive';
-        const inLedger = Boolean(
-          form.querySelector<HTMLInputElement>('#st-ledger')?.checked
-        );
         const accId = form.querySelector<HTMLSelectElement>('#st-account')?.value;
-        settleAllDebtsOfPerson(person, debtType, inLedger, accId);
+        const fundingSource = (form.querySelector<HTMLSelectElement>('#st-funding-source')?.value as
+          | 'my_account'
+          | 'third_party_custody'
+          | 'external') || 'my_account';
+        settleAllDebtsOfPerson(person, debtType, false, accId, fundingSource);
         document.querySelector<HTMLDialogElement>('#dlg2')?.close();
 
         const tabBtn = document.querySelector<HTMLElement>(

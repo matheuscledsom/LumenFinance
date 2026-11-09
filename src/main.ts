@@ -22,6 +22,7 @@ import {
   getCategoryBudgetsProgress,
   resetState,
   normalizePay,
+  removeAccount,
   removeCard,
   removeDebt,
   removeShortcut,
@@ -45,6 +46,14 @@ import { brl, lum, con, parseCents } from './utils/currency';
 import { cur, now, toIsoDate, ym } from './utils/date';
 import { parseAmountInput } from './utils/qol';
 import { home } from './components/home';
+import {
+  cards,
+  openAccountDialog,
+  openAdjustBalanceDialog,
+  openPayInvoiceDialog,
+  openTransferDialog,
+  stepCardsMonth
+} from './components/cards';
 import { stats } from './components/stats';
 import {
   calendar,
@@ -147,6 +156,8 @@ export function render(): void {
     app.innerHTML =
       view === 'home'
         ? home()
+        : view === 'cards'
+        ? cards()
         : view === 'history'
         ? history()
         : view === 'debts'
@@ -160,6 +171,7 @@ export function render(): void {
 
   const N: [ViewName, string, string][] = [
     ['home', '⌂', 'Início'],
+    ['cards', '💳', 'Cartões'],
     ['stats', '▥', 'Estatísticas'],
     ['cal', '▦', 'Calendário'],
     ['debts', '⇄', 'Dívidas'],
@@ -276,20 +288,69 @@ document.addEventListener('click', (e: MouseEvent) => {
     return;
   }
 
-  if (g('[data-card-add]')) {
+  if (g('[data-transfer-modal]')) {
+    openTransferDialog();
+    return;
+  }
+  if (g('[data-new-account]')) {
+    openAccountDialog();
+    return;
+  }
+  if ((b = g('[data-edit-account]'))) {
+    if (b.dataset.editAccount) openAccountDialog(b.dataset.editAccount);
+    return;
+  }
+  if ((b = g('[data-del-account]'))) {
+    const acc = S.accounts.find((a) => a.id === b?.dataset.delAccount);
+    if (acc && confirm(`Excluir a conta "${acc.name}"?`)) {
+      removeAccount(acc.id);
+      render();
+      toast('Conta removida');
+    }
+    return;
+  }
+  if ((b = g('[data-adjust-account]'))) {
+    if (b.dataset.adjustAccount) openAdjustBalanceDialog(b.dataset.adjustAccount);
+    return;
+  }
+  if ((b = g('[data-choose-icon]'))) {
+    const ic = b.dataset.chooseIcon;
+    const hiddenInput = $<HTMLInputElement>('#acc-icon');
+    if (hiddenInput && ic) {
+      hiddenInput.value = ic;
+      b.parentElement?.querySelectorAll('.btn-icon-choice').forEach((el) => el.classList.remove('active'));
+      b.classList.add('active');
+    }
+    return;
+  }
+
+  if (g('[data-card-add]') || g('[data-new-card]')) {
     openCardDialog();
     return;
   }
-  if ((b = g('[data-card-edit]'))) {
-    openCardDialog(b.dataset.cardEdit);
+  if ((b = g('[data-card-edit]') || g('[data-edit-card]'))) {
+    const cid = b.dataset.cardEdit || b.dataset.editCard;
+    if (cid) openCardDialog(cid);
     return;
   }
-  if ((b = g('[data-card-del]'))) {
-    const card = S.cards.find((c) => c.id === b?.dataset.cardDel);
+  if ((b = g('[data-card-del]') || g('[data-del-card]'))) {
+    const cid = b.dataset.cardDel || b.dataset.delCard;
+    const card = S.cards.find((c) => c.id === cid);
     if (card && confirm(`Excluir o cartão "${card.name}"? As compras serão mantidas sem cartão.`)) {
       removeCard(card.id);
       render();
       toast('Cartão removido');
+    }
+    return;
+  }
+  if ((b = g('[data-step-card-month]'))) {
+    stepCardsMonth(Number(b.dataset.stepCardMonth));
+    render();
+    return;
+  }
+  if ((b = g('[data-pay-invoice]'))) {
+    if (b.dataset.payInvoice && b.dataset.invoiceYm) {
+      openPayInvoiceDialog(b.dataset.payInvoice, b.dataset.invoiceYm);
     }
     return;
   }
