@@ -926,8 +926,263 @@ input {
 }
 
 #fn-hint:empty,
-#fcard-hint:empty {
+#fcard-hint:empty,
+#fcard-invoice-hint:empty {
   display: none;
+}
+
+/* Seletor inline e cadastro rápido de Contas e Cartões */
+.selector-inline-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.btn-inline-action {
+  padding: 10px 12px;
+  font-size: .8rem;
+  font-weight: 600;
+  border-radius: 12px;
+  border: 1px dashed var(--bd);
+  background: var(--bg);
+  color: var(--tx);
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.btn-inline-action:hover {
+  border-color: var(--ac);
+  color: var(--ac);
+}
+
+.quick-inline-box {
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: 12px;
+  padding: 12px;
+  margin-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.quick-inline-title {
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--tx);
+  margin-bottom: 2px;
+}
+
+.quick-inline-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.quick-inline-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.quick-inline-actions .btn {
+  padding: 8px 12px;
+  font-size: .82rem;
+}
+
+/* Rachador de contas dinâmico */
+#f-split-section {
+  margin-top: 8px;
+}
+
+.split-box {
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: 12px;
+  padding: 12px;
+  margin-top: 8px;
+  display: grid;
+  gap: 10px;
+}
+
+.split-tip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.split-friends-sugg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.split-friends-sugg .filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.btn-quick-friend {
+  padding: 3px 9px;
+  font-size: .75rem;
+  border-radius: 99px;
+  cursor: pointer;
+}
+
+.split-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.split-person-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: 10px;
+  padding: 6px 10px;
+}
+
+.split-me-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--card);
+  border: 1px solid var(--bd);
+  border-radius: 10px;
+  padding: 6px 10px;
+}
+
+.split-name-label {
+  font-size: .85rem;
+  color: var(--tx);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.split-person-name {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed transparent;
+  border-radius: 0;
+  padding: 6px 4px;
+  color: var(--tx);
+  font-size: .88rem;
+}
+
+.split-person-name:focus {
+  border-bottom-color: var(--ac);
+  outline: none;
+}
+
+.split-val-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.split-person-val,
+.split-val-input {
+  width: 96px;
+  text-align: right;
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  padding: 6px 8px;
+  color: var(--tx);
+  font-size: .88rem;
+}
+
+.btn-del-person {
+  background: none;
+  border: none;
+  color: var(--mut);
+  font-size: 1.3rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-del-person:hover {
+  color: var(--neg);
+}
+
+.split-actions-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.split-actions-row .btn {
+  flex: 1;
+  font-size: .82rem;
+  padding: 8px 10px;
+}
+
+.split-summary-bar {
+  font-size: .8rem;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--bd);
+  line-height: 1.4;
+}
+
+#f-split-fix-diff {
+  display: inline-block;
+  margin-left: 6px;
+  background: none;
+  border: none;
+  color: var(--ac);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: .78rem;
+  padding: 0;
+}
+
+/* Dicas e sugestões rápidas de Tags */
+.tag-help-hint {
+  font-size: .76rem;
+  color: var(--mut);
+  margin: 4px 0 6px;
+  line-height: 1.35;
+}
+
+.tag-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.btn-tag-sugg {
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: 99px;
+  padding: 3px 9px;
+  font-size: .75rem;
+  color: var(--mut);
+  cursor: pointer;
+}
+
+.btn-tag-sugg:hover {
+  color: var(--tx);
+  border-color: var(--tx);
 }
 
 /* Barra de atalhos rápidos (Home) */
@@ -1286,9 +1541,30 @@ input {
 [data-theme="xp"] .filter-chip,
 [data-theme="xp"] .quick-chip,
 [data-theme="xp"] .debt-card,
-[data-theme="xp"] .debt-chip {
+[data-theme="xp"] .debt-chip,
+[data-theme="xp"] .quick-inline-box,
+[data-theme="xp"] .split-box,
+[data-theme="xp"] .split-person-row,
+[data-theme="xp"] .split-me-row,
+[data-theme="xp"] .split-summary-bar,
+[data-theme="xp"] .split-person-val,
+[data-theme="xp"] .split-val-input {
   border-radius: 4px;
   border-color: #7f9db9;
+}
+
+[data-theme="xp"] .btn-inline-action {
+  border-radius: 4px;
+  border: 1px solid #7f9db9;
+  background: linear-gradient(#fff, #e3e1d2);
+  color: #111;
+}
+
+[data-theme="xp"] .btn-tag-sugg {
+  border-radius: 4px;
+  border: 1px solid #7f9db9;
+  background: #fff;
+  color: #0b3fb8;
 }
 
 [data-theme="xp"] .cal-day.cal-selected,
@@ -1342,6 +1618,9 @@ input {
   .cal-day,
   .filter-chip,
   .quick-chip,
+  .btn-inline-action,
+  .btn-tag-sugg,
+  .split-person-row,
   select {
     transition: background-color .15s, border-color .15s, color .15s, transform .15s;
   }

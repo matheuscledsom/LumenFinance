@@ -25,17 +25,24 @@ import {
   removeCard,
   removeDebt,
   removeShortcut,
-  runShortcut
+  runShortcut,
+  saveTransactionWithSplit,
+  cleanupSplitDebts
 } from './state';
 import type {
+  BillSplitInfo,
   Category,
+  DebtRecord,
+  SplitParticipant,
   Theme,
   ThirdPartyInfo,
   Transaction,
+  TransactionStatus,
   TransactionType,
   ViewName
 } from './types/finance';
 import { brl, lum, con, parseCents } from './utils/currency';
+import { cur, now, toIsoDate, ym } from './utils/date';
 import { parseAmountInput } from './utils/qol';
 import { home } from './components/home';
 import { stats } from './components/stats';
@@ -76,7 +83,8 @@ import {
   cats,
   getFormTags,
   addFormTag,
-  removeFormTag
+  removeFormTag,
+  getFormSplitInfo
 } from './components/form-modal';
 
 const $ = <T extends Element = HTMLElement>(s: string): T | null =>
@@ -758,59 +766,214 @@ const handleTxFormSubmit = (e: SubmitEvent, formEl: HTMLFormElement): void => {
       ? fcardEl.value
       : undefined;
 
+  const faccountEl = $<HTMLSelectElement>('#faccount');
+  const accountId =
+    (activeType === 'in' || normalizePay(fpay?.value) !== 'credit') &&
+    faccountEl?.value &&
+    S.accounts.some((a) => a.id === faccountEl.value)
+      ? faccountEl.value
+      : (activeType === 'in' || normalizePay(fpay?.value) !== 'credit')
+        ? (S.accounts.find((a) => a.isDefault)?.id || S.accounts[0]?.id)
+        : undefined;
+
+  const splitInfo = activeType === 'out' ? getFormSplitInfo() : null;
+
+  if (splitInfo) {
+    const totalParts = splitInfo.participants.reduce((sum, p) => sum + p.amountCents, 0);
+    if (totalParts !== splitInfo.totalPurchaseCents) {
+      e.preventDefault();
+      if (fe) {
+        fe.textContent =
+          'A soma das partes da divisão não bate com o valor total. Ajuste as partes ou clique em "Dividir igualmente".';
+      }
+      return;
+    }
+  }
+
+  const dVal = fd?.value || toIsoDate(now);
+  const status: TransactionStatus = ym(dVal) > cur ? 'pending' : 'confirmed';
+
   const baseFields = {
+    accountId,
     cardId,
     type: activeType,
     v,
     n: (fn?.value || '').trim(),
     c: (fc?.value || 'Outros') as Category,
-    d: fd?.value || '',
+    d: dVal,
     pay: normalizePay(fpay?.value),
+    status,
     tags: getFormTags(),
     thirdParty: thirdPartyObj
   };
 
-  if (txId) {
-    const updatedData: Partial<Transaction> = {
-      ...baseFields,
-      recurring: isRecurring
-        ? {
-            groupId: existing?.recurring?.groupId || crypto.randomUUID(),
-            frequency: 'monthly',
-            isTemplate: existing?.recurring?.isTemplate ?? true
-          }
-        : undefined
-    };
-    updateTx(txId, updatedData);
-    delete formEl.dataset.txId;
-  } else if (instCount > 1) {
-    const generated = createInstallments(
-      {
+  let friendsCount = 0;
+
+  if (existing?.splitInfo) {
+    cleanupSplitDebts(existing.splitInfo);
+  }
+
+  if (splitInfo) {
+    const friendParticipants = splitInfo.participants.filter((p) => !p.isMe && p.amountCents > 0);
+    friendsCount = friendParticipants.length;
+
+    if (txId) {
+      const meParticipant = splitInfo.participants.find((p) => p.isMe);
+      const myAmountCents = meParticipant ? meParticipant.amountCents : v;
+      const totalPurchaseCents =
+        splitInfo.totalPurchaseCents ||
+        splitInfo.participants.reduce((a, p) => a + p.amountCents, 0);
+
+      const updatedParticipants = splitInfo.participants.map((p) => {
+        if (p.isMe || !(p.amountCents > 0)) return { ...p };
+        const debtId = crypto.randomUUID();
+        const newDebt: DebtRecord = {
+          id: debtId,
+          personName: p.name.trim(),
+          type: 'to_receive',
+          originalAmountCents: p.amountCents,
+          paidAmountCents: 0,
+          payments: [],
+          description: `${baseFields.n} (Divisão)`,
+          status: 'active',
+          createdAt: toIsoDate(now)
+        };
+        if (p.pixKey?.trim() || S.defaultPixKey?.trim()) {
+          newDebt.pixKey = p.pixKey?.trim() || S.defaultPixKey?.trim();
+        }
+        S.debts.push(newDebt);
+        if (!S.frequentPeople.includes(p.name.trim())) {
+          S.frequentPeople.push(p.name.trim());
+        }
+        return { ...p, debtId };
+      });
+
+      const finalSplitInfo: BillSplitInfo = {
+        ...splitInfo,
+        totalPurchaseCents,
+        participants: updatedParticipants
+      };
+
+      updateTx(txId, {
         ...baseFields,
-        thirdParty: isTpChecked
-          ? { isThirdParty: true, personName: tpPerson, isReimbursed: false }
+        v: myAmountCents,
+        splitInfo: finalSplitInfo,
+        recurring: isRecurring
+          ? {
+              groupId: existing?.recurring?.groupId || crypto.randomUUID(),
+              frequency: 'monthly',
+              isTemplate: existing?.recurring?.isTemplate ?? true
+            }
           : undefined
-      },
-      instCount
-    );
-    S.tx.push(...generated);
-    save();
-  } else if (isRecurring) {
-    addTx({
-      id: crypto.randomUUID(),
-      ...baseFields,
-      recurring: {
-        groupId: crypto.randomUUID(),
-        frequency: 'monthly',
-        isTemplate: true
-      }
-    });
-    materializeRecurring();
+      });
+      delete formEl.dataset.txId;
+    } else if (instCount > 1) {
+      const meParticipant = splitInfo.participants.find((p) => p.isMe);
+      const myAmountCents = meParticipant ? meParticipant.amountCents : v;
+      const totalPurchaseCents =
+        splitInfo.totalPurchaseCents ||
+        splitInfo.participants.reduce((a, p) => a + p.amountCents, 0);
+
+      const updatedParticipants = splitInfo.participants.map((p) => {
+        if (p.isMe || !(p.amountCents > 0)) return { ...p };
+        const debtId = crypto.randomUUID();
+        const newDebt: DebtRecord = {
+          id: debtId,
+          personName: p.name.trim(),
+          type: 'to_receive',
+          originalAmountCents: p.amountCents,
+          paidAmountCents: 0,
+          payments: [],
+          description: `${baseFields.n} (Divisão)`,
+          status: 'active',
+          createdAt: toIsoDate(now)
+        };
+        if (p.pixKey?.trim() || S.defaultPixKey?.trim()) {
+          newDebt.pixKey = p.pixKey?.trim() || S.defaultPixKey?.trim();
+        }
+        S.debts.push(newDebt);
+        if (!S.frequentPeople.includes(p.name.trim())) {
+          S.frequentPeople.push(p.name.trim());
+        }
+        return { ...p, debtId };
+      });
+
+      const finalSplitInfo: BillSplitInfo = {
+        ...splitInfo,
+        totalPurchaseCents,
+        participants: updatedParticipants
+      };
+
+      const generated = createInstallments(
+        {
+          ...baseFields,
+          v: myAmountCents,
+          splitInfo: finalSplitInfo
+        },
+        instCount
+      );
+      S.tx.push(...generated);
+      save();
+    } else if (isRecurring) {
+      saveTransactionWithSplit(
+        {
+          ...baseFields,
+          recurring: {
+            groupId: crypto.randomUUID(),
+            frequency: 'monthly',
+            isTemplate: true
+          }
+        },
+        splitInfo
+      );
+      materializeRecurring();
+    } else {
+      saveTransactionWithSplit(baseFields, splitInfo);
+    }
   } else {
-    addTx({
-      id: crypto.randomUUID(),
-      ...baseFields
-    });
+    if (txId) {
+      const updatedData: Partial<Transaction> = {
+        ...baseFields,
+        splitInfo: undefined,
+        recurring: isRecurring
+          ? {
+              groupId: existing?.recurring?.groupId || crypto.randomUUID(),
+              frequency: 'monthly',
+              isTemplate: existing?.recurring?.isTemplate ?? true
+            }
+          : undefined
+      };
+      updateTx(txId, updatedData);
+      delete formEl.dataset.txId;
+    } else if (instCount > 1) {
+      const generated = createInstallments(
+        {
+          ...baseFields,
+          thirdParty: isTpChecked
+            ? { isThirdParty: true, personName: tpPerson, isReimbursed: false }
+            : undefined
+        },
+        instCount
+      );
+      S.tx.push(...generated);
+      save();
+    } else if (isRecurring) {
+      addTx({
+        id: crypto.randomUUID(),
+        ...baseFields,
+        recurring: {
+          groupId: crypto.randomUUID(),
+          frequency: 'monthly',
+          isTemplate: true
+        }
+      });
+      materializeRecurring();
+    } else {
+      addTx({
+        id: crypto.randomUUID(),
+        ...baseFields
+      });
+    }
   }
 
   render();
@@ -829,7 +992,15 @@ const handleTxFormSubmit = (e: SubmitEvent, formEl: HTMLFormElement): void => {
     }
   }
 
-  toast(txId ? 'Movimentação atualizada' : 'Movimentação salva');
+  if (friendsCount > 0) {
+    toast(
+      txId
+        ? 'Movimentação atualizada com divisão de conta'
+        : `Gasto registrado! ${friendsCount} ${friendsCount === 1 ? 'dívida adicionada' : 'dívidas adicionadas'} ao livro de cobranças.`
+    );
+  } else {
+    toast(txId ? 'Movimentação atualizada' : 'Movimentação salva');
+  }
 };
 
 document.addEventListener('submit', (e: SubmitEvent) => {
