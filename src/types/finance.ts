@@ -10,6 +10,48 @@ export type TransactionStatus = 'confirmed' | 'pending';
 
 export type RecurringFrequency = 'monthly';
 
+export const BUDGET_WARNING_THRESHOLD_RATIO = 0.8;
+export const NEAR_ZERO_THRESHOLD_RATIO = 0.1;
+
+export interface BankAccount {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  initialBalanceCents: number;
+  isDefault?: boolean;
+}
+
+export const DEFAULT_ACCOUNTS: BankAccount[] = [
+  { id: 'acc-carteira', name: 'Carteira Física', icon: '💵', color: '#16a34a', initialBalanceCents: 0, isDefault: true },
+  { id: 'acc-nubank', name: 'Nubank', icon: '🟣', color: '#820ad1', initialBalanceCents: 0 },
+  { id: 'acc-inter', name: 'Banco Inter', icon: '🟠', color: '#ff7a00', initialBalanceCents: 0 }
+];
+
+export interface SplitParticipant {
+  id: string;
+  name: string;
+  amountCents: number;
+  isMe: boolean;
+  pixKey?: string;
+  debtId?: string;
+}
+
+export interface BillSplitInfo {
+  totalPurchaseCents: number;
+  serviceTipPercent: number;
+  participants: SplitParticipant[];
+}
+
+export interface CardInvoice {
+  cardId: string;
+  monthYear: string;
+  totalAmountCents: number;
+  status: 'open' | 'closed' | 'paid';
+  paidAt?: string;
+  paymentTxId?: string;
+}
+
 export type InstallmentInput = {
   totalInstallments: number;
   totalAmountCents: number;
@@ -168,7 +210,9 @@ export interface Transaction {
   v: number;
   n: string;
   notes?: string;
+  accountId?: string;
   cardId?: string;
+  splitInfo?: BillSplitInfo;
   c: Category;
   d: string;
   pay: PaymentMethod;
@@ -184,6 +228,8 @@ export interface TransactionFilters {
   type?: 'all' | 'in' | 'out';
   categoryId?: string;
   paymentMethod?: PaymentMethod | 'all';
+  cardId?: string;
+  accountId?: string;
   tag?: string;
   startDate?: string;
   endDate?: string;
@@ -207,6 +253,7 @@ export interface CreditCard {
   limitCents: number;
   closingDay: number;
   dueDay: number;
+  linkedAccountId?: string;
 }
 
 export interface DebtPayment {
@@ -239,6 +286,7 @@ export interface QuickShortcut {
   categoryId: string;
   paymentMethod: PaymentMethod;
   cardId?: string;
+  accountId?: string;
 }
 
 export interface CardLimitUsage {
@@ -260,7 +308,11 @@ export interface AppState {
   goalCents: number;
   cards: CreditCard[];
   debts: DebtRecord[];
+  accounts: BankAccount[];
+  frequentPeople: string[];
   quickShortcuts: QuickShortcut[];
   hasCompletedOnboarding: boolean;
   roundUpEnabled: boolean;
+  paidInvoices: CardInvoice[];
+  defaultPixKey?: string;
 }

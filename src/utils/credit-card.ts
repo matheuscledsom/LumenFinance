@@ -1,10 +1,25 @@
 /* ==========================================================================
-   credit-card.ts — Competência de Fatura, Melhor Dia de Compra e Uso de Limite
+   credit-card.ts — Competência de Fatura, Melhor Dia de Compra, Faturas e Compromissos
    ========================================================================== */
 
-import { S } from '../state';
-import type { CardLimitUsage, CreditCard, Transaction } from '../types/finance';
+import { S, save } from '../state';
+import type {
+  CardInvoice,
+  CardLimitUsage,
+  Category,
+  CreditCard,
+  PaymentMethod,
+  Transaction
+} from '../types/finance';
 import { now, prevM, toIsoDate, ym } from './date';
+
+/**
+ * Retorna o valor real cobrado no cartão (se houve split, o valor integral da compra).
+ */
+export const getTransactionCardAmount = (t: Transaction): number =>
+  t.splitInfo?.totalPurchaseCents && t.splitInfo.totalPurchaseCents > 0
+    ? t.splitInfo.totalPurchaseCents
+    : t.v;
 
 /**
  * Retorna a competência (YYYY-MM) da fatura em que uma compra entra.
@@ -34,22 +49,31 @@ export const formatInvoiceLabel = (invoiceYm: string): string => {
 };
 
 /**
- * Indica se uma compra ainda consome limite: está pendente ou pertence à fatura aberta/futura.
+ * Indica se uma compra ainda consome limite: está pendente ou pertence a fatura não paga.
  */
 const consumesLimit = (t: Transaction, card: CreditCard): boolean => {
   if (t.type !== 'out' || t.cardId !== card.id) return false;
+  const invYm = calculateInvoiceMonth(t.d, card.closingDay);
+  const isPaid = S.paidInvoices?.some(
+    (inv) => inv.cardId === card.id && inv.monthYear === invYm && inv.status === 'paid'
+  );
+  if (isPaid) return false;
+
   if (t.status === 'pending') return true;
   const openInvoice = calculateInvoiceMonth(toIsoDate(now), card.closingDay);
-  return calculateInvoiceMonth(t.d, card.closingDay) >= openInvoice;
+  return invYm >= openInvoice;
 };
 
 /**
- * Soma compras à vista da fatura aberta e parcelas futuras pendentes de um cartão.
+ * Soma compras à vista da fatura aberta e parcelas futuras pendentes de um cartão,
+ * respeitando o valor integral de compras divididas (splitInfo.totalPurchaseCents).
  */
 export const getCardLimitUsage = (cardId: string): CardLimitUsage => {
   const card = S.cards.find((c) => c.id === cardId);
   if (!card) return { limitCents: 0, usedCents: 0, availableCents: 0, percent: 0 };
-  const usedCents = S.tx.filter((t) => consumesLimit(t, card)).reduce((a, t) => a + t.v, 0);
+  const usedCents = S.tx
+    .filter((t) => consumesLimit(t, card))
+    .reduce((a, t) => a + getTransactionCardAmount(t), 0);
   const availableCents = card.limitCents - usedCents;
   const percent = card.limitCents > 0 ? (usedCents / card.limitCents) * 100 : 0;
   return { limitCents: card.limitCents, usedCents, availableCents, percent };
@@ -68,5 +92,236 @@ export const getInvoiceTotal = (cardId: string, invoiceYm: string): number => {
         t.cardId === cardId &&
         calculateInvoiceMonth(t.d, card.closingDay) === invoiceYm
     )
-    .reduce((a, t) => a + t.v, 0);
+    .reduce((a, t) => a + getTransactionCardAmount(t), 0);
+};
+
+export interface CardInvoiceStatus {
+  totalCents: number;
+  status: 'open' | 'closed' | 'paid';
+  transactions: Transaction[];
+  paidInvoice?: CardInvoice;
+}
+
+/**
+ * Obtém o status da fatura de um cartão em uma competência: aberta, fechada ou paga.
+ */
+export const getCardInvoiceStatus = (cardId: string, monthYear: string): CardInvoiceStatus => {
+  const card = S.cards.find((c) => c.id === cardId);
+  const paidInvoice = S.paidInvoices?.find(
+    (inv) => inv.cardId === cardId && inv.monthYear === monthYear && inv.status === 'paid'
+  );
+  if (!card) {
+    return { totalCents: 0, status: 'open', transactions: [] };
+  }
+
+  const transactions = S.tx.filter(
+    (t) =>
+      t.type === 'out' &&
+      t.cardId === cardId &&
+      calculateInvoiceMonth(t.d, card.closingDay) === monthYear
+  );
+
+  const calculatedTotal = transactions.reduce(
+    (a, t) => a + getTransactionCardAmount(t),
+    0
+  );
+
+  if (paidInvoice) {
+    return {
+      totalCents: paidInvoice.totalAmountCents || calculatedTotal,
+      status: 'paid',
+      transactions,
+      paidInvoice
+    };
+  }
+
+  const todayStr = toIsoDate(now);
+  const openInvoiceYm = calculateInvoiceMonth(todayStr, card.closingDay);
+
+  let status: 'open' | 'closed' | 'paid' = 'open';
+  if (monthYear < openInvoiceYm) {
+    status = 'closed';
+  } else if (monthYear === openInvoiceYm) {
+    const currentDay = now.getDate();
+    status = currentDay >= card.closingDay ? 'closed' : 'open';
+  }
+
+  return { totalCents: calculatedTotal, status, transactions };
+};
+
+/**
+ * Liquida a fatura de um cartão de crédito, registrando o pagamento em S.tx,
+ * salvando em S.paidInvoices e liberando o limite disponível.
+ */
+export const payCardInvoice = (
+  cardId: string,
+  monthYear: string,
+  paymentMethod: PaymentMethod = 'money',
+  accountId?: string
+): Transaction | null => {
+  const card = S.cards.find((c) => c.id === cardId);
+  if (!card) return null;
+
+  const currentStatus = getCardInvoiceStatus(cardId, monthYear);
+  if (currentStatus.status === 'paid' || currentStatus.totalCents <= 0) {
+    return null;
+  }
+
+  const invoiceAmount = currentStatus.totalCents;
+  const label = formatInvoiceLabel(monthYear);
+  const cat =
+    S.cats.out.find((c) => c.name === 'Moradia' || c.name === 'Outros') || S.cats.out[0];
+
+  const paymentTx: Transaction = {
+    id: crypto.randomUUID(),
+    type: 'out',
+    v: invoiceAmount,
+    n: `Pagamento de Fatura - ${card.name} (${label})`,
+    c: (cat ? cat.name : 'Moradia') as Category,
+    d: toIsoDate(now),
+    pay: paymentMethod,
+    tags: ['fatura', 'cartao'],
+    status: 'confirmed'
+  };
+
+  if (accountId) {
+    paymentTx.accountId = accountId;
+  }
+
+  S.tx.push(paymentTx);
+
+  if (!S.paidInvoices) {
+    S.paidInvoices = [];
+  }
+
+  S.paidInvoices.push({
+    cardId,
+    monthYear,
+    totalAmountCents: invoiceAmount,
+    status: 'paid',
+    paidAt: toIsoDate(now),
+    paymentTxId: paymentTx.id
+  });
+
+  save();
+  return paymentTx;
+};
+
+export interface CommitmentSegment {
+  id: string;
+  label: string;
+  amountCents: number;
+  color: string;
+  pct: number;
+  kind: 'card' | 'debt_to_pay' | 'pending_bill';
+}
+
+export interface HomeCommitmentsBreakdown {
+  segments: CommitmentSegment[];
+  totalCommitmentsCents: number;
+  totalCardsCents: number;
+  totalDebtsToPayCents: number;
+  totalDebtsToReceiveCents: number;
+  cardDetails: Array<{
+    card: CreditCard;
+    invoiceTotalCents: number;
+    status: 'open' | 'closed' | 'paid';
+    closingDay: number;
+    dueDay: number;
+  }>;
+}
+
+/**
+ * Calcula o detalhamento e segmentos de compromissos para o infográfico na Home.
+ */
+export const getHomeCommitmentsBreakdown = (monthYear: string): HomeCommitmentsBreakdown => {
+  const segments: CommitmentSegment[] = [];
+  const cardDetails: HomeCommitmentsBreakdown['cardDetails'] = [];
+
+  let totalCardsCents = 0;
+  for (const card of S.cards) {
+    const inv = getCardInvoiceStatus(card.id, monthYear);
+    cardDetails.push({
+      card,
+      invoiceTotalCents: inv.totalCents,
+      status: inv.status,
+      closingDay: card.closingDay,
+      dueDay: card.dueDay
+    });
+
+    if (inv.status !== 'paid' && inv.totalCents > 0) {
+      totalCardsCents += inv.totalCents;
+      segments.push({
+        id: `card-${card.id}`,
+        label: card.name,
+        amountCents: inv.totalCents,
+        color: card.color,
+        pct: 0,
+        kind: 'card'
+      });
+    }
+  }
+
+  // Dívidas ativas a pagar
+  let totalDebtsToPayCents = 0;
+  for (const d of S.debts) {
+    if (d.status === 'active' && d.type === 'to_pay') {
+      const remaining = Math.max(0, d.originalAmountCents - d.paidAmountCents);
+      totalDebtsToPayCents += remaining;
+    }
+  }
+
+  if (totalDebtsToPayCents > 0) {
+    segments.push({
+      id: 'debts-to-pay',
+      label: 'Devo a pessoas',
+      amountCents: totalDebtsToPayCents,
+      color: '#ef4444',
+      pct: 0,
+      kind: 'debt_to_pay'
+    });
+  }
+
+  // Contas pendentes que não são de cartão no mês
+  const pendingBills = S.tx.filter(
+    (t) =>
+      t.type === 'out' &&
+      t.status === 'pending' &&
+      ym(t.d) === monthYear &&
+      t.pay !== 'credit'
+  );
+  const pendingBillsCents = pendingBills.reduce((a, t) => a + t.v, 0);
+
+  if (pendingBillsCents > 0) {
+    segments.push({
+      id: 'pending-bills',
+      label: 'Contas fixas pendentes',
+      amountCents: pendingBillsCents,
+      color: '#f97316',
+      pct: 0,
+      kind: 'pending_bill'
+    });
+  }
+
+  const totalCommitmentsCents = segments.reduce((a, s) => a + s.amountCents, 0);
+  for (const seg of segments) {
+    seg.pct = totalCommitmentsCents > 0 ? (seg.amountCents / totalCommitmentsCents) * 100 : 0;
+  }
+
+  // Valores a receber de amigos
+  let totalDebtsToReceiveCents = 0;
+  for (const d of S.debts) {
+    if (d.status === 'active' && d.type === 'to_receive') {
+      totalDebtsToReceiveCents += Math.max(0, d.originalAmountCents - d.paidAmountCents);
+    }
+  }
+
+  return {
+    segments,
+    totalCommitmentsCents,
+    totalCardsCents,
+    totalDebtsToPayCents,
+    totalDebtsToReceiveCents,
+    cardDetails
+  };
 };

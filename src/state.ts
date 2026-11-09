@@ -4,10 +4,14 @@
 
 import {
   DEFAULT_CATEGORIES,
+  DEFAULT_ACCOUNTS,
   cloneDefaultCategories,
   isValidPaymentMethod,
   type AppState,
+  type BankAccount,
+  type BillSplitInfo,
   type BudgetProgress,
+  type CardInvoice,
   type CategoriesState,
   type Category,
   type CategoryBudget,
@@ -23,6 +27,7 @@ import {
   type PaymentMethod,
   type QuickShortcut,
   type RecurringInfo,
+  type SplitParticipant,
   type Theme,
   type ThirdPartyInfo,
   type Transaction,
@@ -260,9 +265,131 @@ export const normalizeCards = (raw: unknown): CreditCard[] => {
     };
     const digits = asString(r.lastDigits).replace(/\D/g, '').slice(-4);
     if (digits) card.lastDigits = digits;
+    const linkedAccountId = asString(r.linkedAccountId);
+    if (linkedAccountId) card.linkedAccountId = linkedAccountId;
     out.push(card);
   }
   return out;
+};
+
+/**
+ * Normaliza a lista de contas bancárias e carteiras persistidas.
+ */
+export const normalizeAccounts = (raw: unknown): BankAccount[] => {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return DEFAULT_ACCOUNTS.map((a) => ({ ...a }));
+  }
+  const out: BankAccount[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    const name = asString(r.name);
+    if (!name) continue;
+    const initialBalanceCents =
+      typeof r.initialBalanceCents === 'number'
+        ? Math.round(r.initialBalanceCents)
+        : Number(r.initialBalanceCents) || 0;
+    out.push({
+      id: asString(r.id) || crypto.randomUUID(),
+      name,
+      icon: asString(r.icon) || '🏦',
+      color: /^#[0-9a-f]{6}$/i.test(asString(r.color)) ? asString(r.color) : '#8b5cf6',
+      initialBalanceCents,
+      isDefault: Boolean(r.isDefault)
+    });
+  }
+  if (out.length === 0) {
+    return DEFAULT_ACCOUNTS.map((a) => ({ ...a }));
+  }
+  if (!out.some((a) => a.isDefault)) {
+    out[0].isDefault = true;
+  }
+  return out;
+};
+
+/**
+ * Normaliza o registro de faturas de cartão pagas.
+ */
+export const normalizePaidInvoices = (raw: unknown): CardInvoice[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: CardInvoice[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    const cardId = asString(r.cardId);
+    const monthYear = asString(r.monthYear);
+    if (!cardId || !monthYear) continue;
+    out.push({
+      cardId,
+      monthYear,
+      totalAmountCents: asPositiveInt(r.totalAmountCents),
+      status: r.status === 'open' || r.status === 'closed' ? r.status : 'paid',
+      paidAt: asString(r.paidAt) || undefined,
+      paymentTxId: asString(r.paymentTxId) || undefined
+    });
+  }
+  return out;
+};
+
+/**
+ * Normaliza os detalhes de divisão de compras (BillSplitInfo).
+ */
+export const normalizeSplitInfo = (raw: unknown): BillSplitInfo | undefined => {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const totalPurchaseCents = asPositiveInt(r.totalPurchaseCents);
+  const serviceTipPercent =
+    typeof r.serviceTipPercent === 'number'
+      ? Math.max(0, Math.min(100, Math.round(r.serviceTipPercent)))
+      : 0;
+  if (!Array.isArray(r.participants) || r.participants.length === 0) return undefined;
+  const participants: SplitParticipant[] = [];
+  for (const p of r.participants) {
+    if (!p || typeof p !== 'object') continue;
+    const pr = p as Record<string, unknown>;
+    const name = asString(pr.name);
+    if (!name) continue;
+    participants.push({
+      id: asString(pr.id) || crypto.randomUUID(),
+      name,
+      amountCents: asPositiveInt(pr.amountCents),
+      isMe: Boolean(pr.isMe),
+      pixKey: asString(pr.pixKey) || undefined,
+      debtId: asString(pr.debtId) || undefined
+    });
+  }
+  if (participants.length === 0) return undefined;
+  return {
+    totalPurchaseCents:
+      totalPurchaseCents || participants.reduce((a, p) => a + p.amountCents, 0),
+    serviceTipPercent,
+    participants
+  };
+};
+
+/**
+ * Normaliza a lista de nomes frequentes para autocomplete.
+ */
+export const normalizeFrequentPeople = (
+  raw: unknown,
+  debts: DebtRecord[]
+): string[] => {
+  const set = new Set<string>();
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (typeof item === 'string' && item.trim()) {
+        set.add(item.trim());
+      }
+    }
+  }
+  if (set.size === 0 && Array.isArray(debts)) {
+    for (const d of debts) {
+      if (d.personName?.trim()) {
+        set.add(d.personName.trim());
+      }
+    }
+  }
+  return [...set];
 };
 
 /**
@@ -337,6 +464,8 @@ export const normalizeShortcuts = (raw: unknown): QuickShortcut[] => {
     };
     const cardId = asString(r.cardId);
     if (cardId) sc.cardId = cardId;
+    const accountId = asString(r.accountId);
+    if (accountId) sc.accountId = accountId;
     out.push(sc);
   }
   return out;
@@ -359,9 +488,12 @@ export const S: AppState = {
   goalCents: 0,
   cards: [],
   debts: [],
+  accounts: DEFAULT_ACCOUNTS.map((a) => ({ ...a })),
+  frequentPeople: [],
   quickShortcuts: [],
   hasCompletedOnboarding: false,
-  roundUpEnabled: false
+  roundUpEnabled: false,
+  paidInvoices: []
 };
 
 export let view: ViewName = 'home';
@@ -386,6 +518,9 @@ export const migrate = (raw: unknown): Partial<AppState> => {
       goalCents: 0,
       cards: [],
       debts: [],
+      accounts: DEFAULT_ACCOUNTS.map((a) => ({ ...a })),
+      frequentPeople: [],
+      paidInvoices: [],
       quickShortcuts: [],
       roundUpEnabled: false,
       hasCompletedOnboarding: false
@@ -399,6 +534,7 @@ export const migrate = (raw: unknown): Partial<AppState> => {
       const installments = normalizeInstallments(t.installments);
       const recurring = normalizeRecurring(t.recurring);
       const thirdParty = normalizeThirdParty(t.thirdParty);
+      const splitInfo = normalizeSplitInfo(t.splitInfo);
       const item: Transaction = {
         id: t.id != null ? String(t.id) : crypto.randomUUID(),
         type: t.type === 'in' ? 'in' : 'out',
@@ -416,6 +552,10 @@ export const migrate = (raw: unknown): Partial<AppState> => {
       if (typeof t.cardId === 'string' && t.cardId.trim()) {
         item.cardId = t.cardId.trim();
       }
+      if (typeof t.accountId === 'string' && t.accountId.trim()) {
+        item.accountId = t.accountId.trim();
+      }
+      if (splitInfo) item.splitInfo = splitInfo;
       if (installments) item.installments = installments;
       if (recurring) item.recurring = recurring;
       if (thirdParty) item.thirdParty = thirdParty;
@@ -429,13 +569,23 @@ export const migrate = (raw: unknown): Partial<AppState> => {
       ? Math.round(data.goalCents)
       : 0;
 
+  const debts = normalizeDebts(data.debts);
+  const accounts = normalizeAccounts(data.accounts);
+  const frequentPeople = Array.isArray(data.frequentPeople)
+    ? normalizeFrequentPeople(data.frequentPeople, debts)
+    : [];
+  const paidInvoices = normalizePaidInvoices(data.paidInvoices);
+
   const result: Partial<AppState> = {
     tx,
     cats,
     budgets,
     goalCents,
     cards: normalizeCards(data.cards),
-    debts: normalizeDebts(data.debts),
+    debts,
+    accounts,
+    frequentPeople,
+    paidInvoices,
     quickShortcuts: normalizeShortcuts(data.quickShortcuts),
     roundUpEnabled: data.roundUpEnabled === true,
     hasCompletedOnboarding:
@@ -443,6 +593,9 @@ export const migrate = (raw: unknown): Partial<AppState> => {
         ? data.hasCompletedOnboarding
         : tx.length > 0
   };
+  if (typeof data.defaultPixKey === 'string' && data.defaultPixKey.trim()) {
+    result.defaultPixKey = data.defaultPixKey.trim();
+  }
   if (typeof data.name === 'string') result.name = data.name;
   if (
     data.theme === 'oled' ||
@@ -478,6 +631,8 @@ export type InstallmentBaseTx = {
   tags?: string[];
   thirdParty?: ThirdPartyInfo;
   cardId?: string;
+  accountId?: string;
+  splitInfo?: BillSplitInfo;
 };
 
 /**
@@ -534,6 +689,12 @@ export const createInstallments = (
     }
     if (baseTx.cardId) {
       item.cardId = baseTx.cardId;
+    }
+    if (baseTx.accountId) {
+      item.accountId = baseTx.accountId;
+    }
+    if (baseTx.splitInfo) {
+      item.splitInfo = baseTx.splitInfo;
     }
 
     generated.push(item);
@@ -595,6 +756,12 @@ export const materializeRecurring = (targetYm: string = cur): number => {
     }
     if (template.cardId) {
       item.cardId = template.cardId;
+    }
+    if (template.accountId) {
+      item.accountId = template.accountId;
+    }
+    if (template.splitInfo) {
+      item.splitInfo = template.splitInfo;
     }
     S.tx.push(item);
     createdCount++;
@@ -791,6 +958,10 @@ export const filterTransactions = (
       : null;
   const rawTag = (filters.tag || '').trim();
   const filterTag = rawTag && rawTag !== 'all' ? normalizeTag(rawTag) : null;
+  const rawCard = (filters.cardId || '').trim();
+  const filterCard = rawCard && rawCard !== 'all' ? rawCard : null;
+  const rawAccount = (filters.accountId || '').trim();
+  const filterAccount = rawAccount && rawAccount !== 'all' ? rawAccount : null;
   const startDate = (filters.startDate || '').trim();
   const endDate = (filters.endDate || '').trim();
   const onlyPending = Boolean(filters.onlyPending);
@@ -822,6 +993,14 @@ export const filterTransactions = (
       }
 
       if (filterPay && normalizePay(t.pay) !== filterPay) {
+        return false;
+      }
+
+      if (filterCard && t.cardId !== filterCard) {
+        return false;
+      }
+
+      if (filterAccount && t.accountId !== filterAccount) {
         return false;
       }
 
@@ -883,6 +1062,9 @@ export const get = (): AppState => {
     S.goalCents = 0;
     S.cards = [];
     S.debts = [];
+    S.accounts = DEFAULT_ACCOUNTS.map((a) => ({ ...a }));
+    S.frequentPeople = [];
+    S.paidInvoices = [];
     S.quickShortcuts = [];
     S.roundUpEnabled = false;
   }
@@ -1134,9 +1316,26 @@ export const updateTx = (id: string, data: Partial<Transaction>): void => {
 };
 
 /**
+ * Remove dívidas vinculadas a uma divisão de despesa para evitar dívidas órfãs.
+ */
+export const cleanupSplitDebts = (splitInfo?: BillSplitInfo): void => {
+  if (!splitInfo || !Array.isArray(splitInfo.participants)) return;
+  const debtIds = splitInfo.participants
+    .map((p) => p.debtId)
+    .filter((id): id is string => Boolean(id));
+  if (debtIds.length > 0) {
+    S.debts = S.debts.filter((d) => !debtIds.includes(d.id));
+  }
+};
+
+/**
  * Remove uma movimentação pelo id de S.tx e persiste.
  */
 export const deleteTx = (id: string): void => {
+  const item = S.tx.find((t) => String(t.id) === String(id));
+  if (item?.splitInfo) {
+    cleanupSplitDebts(item.splitInfo);
+  }
   S.tx = S.tx.filter((t) => String(t.id) !== String(id));
   save();
 };
@@ -1220,12 +1419,13 @@ export const addDebt = (debt: DebtInput): void => {
 /**
  * Registra um pagamento (amortização) parcial ou total. Quando atingir o valor original,
  * marca a dívida como 'settled'. Se registerAsIncome e a dívida for 'to_receive',
- * lança automaticamente um ganho em S.tx.
+ * lança automaticamente um ganho em S.tx, associando à conta de destino se fornecida.
  */
 export const amortizeDebt = (
   debtId: string,
   amountCents: number,
-  registerAsIncome = false
+  registerAsIncome = false,
+  accountId?: string
 ): void => {
   const debt = S.debts.find((d) => d.id === debtId);
   const amount = Math.round(amountCents);
@@ -1240,7 +1440,7 @@ export const amortizeDebt = (
 
   if (registerAsIncome && debt.type === 'to_receive') {
     const inCat = S.cats.in.find((c) => c.name === 'Outros') || S.cats.in[0];
-    S.tx.push({
+    const incomeTx: Transaction = {
       id: crypto.randomUUID(),
       type: 'in',
       v: amount,
@@ -1250,7 +1450,11 @@ export const amortizeDebt = (
       pay: 'pix',
       tags: ['divida'],
       status: 'confirmed'
-    });
+    };
+    if (accountId) {
+      incomeTx.accountId = accountId;
+    }
+    S.tx.push(incomeTx);
   }
   save();
 };
@@ -1365,6 +1569,278 @@ export const findLastByName = (name: string, excludeId?: string): Transaction | 
   return exact || prefix;
 };
 
+/* ==========================================================================
+   Contas Bancárias e Carteiras
+   ========================================================================== */
+
+/**
+ * Cadastra uma nova conta bancária ou carteira e persiste.
+ */
+export const addAccount = (
+  name: string,
+  icon: string,
+  color: string,
+  initialBalanceCents: number
+): BankAccount => {
+  const account: BankAccount = {
+    id: crypto.randomUUID(),
+    name: name.trim(),
+    icon: icon.trim() || '🏦',
+    color: /^#[0-9a-f]{6}$/i.test(color) ? color : '#8b5cf6',
+    initialBalanceCents: Math.round(initialBalanceCents) || 0,
+    isDefault: S.accounts.length === 0
+  };
+  S.accounts.push(account);
+  save();
+  return account;
+};
+
+/**
+ * Remove uma conta bancária se houver mais de uma cadastrada, desvinculando movimentações e cartões.
+ */
+export const removeAccount = (id: string): boolean => {
+  if (S.accounts.length <= 1) return false;
+  const target = S.accounts.find((a) => a.id === id);
+  if (!target) return false;
+  S.accounts = S.accounts.filter((a) => a.id !== id);
+  if (target.isDefault && S.accounts.length > 0) {
+    S.accounts[0].isDefault = true;
+  }
+  for (const t of S.tx) {
+    if (t.accountId === id) delete t.accountId;
+  }
+  for (const c of S.cards) {
+    if (c.linkedAccountId === id) delete c.linkedAccountId;
+  }
+  for (const sc of S.quickShortcuts) {
+    if (sc.accountId === id) delete sc.accountId;
+  }
+  save();
+  return true;
+};
+
+/**
+ * Retorna uma conta bancária pelo seu identificador.
+ */
+export const getAccountById = (id?: string): BankAccount | undefined => {
+  if (!id) return undefined;
+  return S.accounts.find((a) => a.id === id);
+};
+
+/**
+ * Calcula o saldo consolidado atual de cada conta bancária cadastrada:
+ * saldo inicial + ganhos confirmados - despesas confirmadas (exceto compras no crédito não pagas).
+ */
+export const getAccountBalances = (): Array<{
+  account: BankAccount;
+  currentBalanceCents: number;
+}> => {
+  return S.accounts.map((account) => {
+    let balance = account.initialBalanceCents;
+    for (const t of S.tx) {
+      if (t.accountId !== account.id || t.status !== 'confirmed') continue;
+      if (t.type === 'in') {
+        balance += t.v;
+      } else if (t.type === 'out') {
+        if (t.pay !== 'credit') {
+          balance -= t.v;
+        }
+      }
+    }
+    return {
+      account,
+      currentBalanceCents: balance
+    };
+  });
+};
+
+/* ==========================================================================
+   Rachador de Contas Integrado com Dívidas
+   ========================================================================== */
+
+/**
+ * Salva uma movimentação dividida com amigos, criando dívidas automáticas para cada participante
+ * e registrando apenas a cota pessoal na movimentação para não inflar o orçamento.
+ */
+export const saveTransactionWithSplit = (
+  txData: Omit<Transaction, 'id'>,
+  splitInfo: BillSplitInfo
+): { myTxId: string; createdDebtIds: string[] } => {
+  const meParticipant = splitInfo.participants.find((p) => p.isMe);
+  const myAmountCents = meParticipant ? meParticipant.amountCents : txData.v;
+  const totalPurchaseCents =
+    splitInfo.totalPurchaseCents ||
+    splitInfo.participants.reduce((a, p) => a + p.amountCents, 0);
+
+  const createdDebtIds: string[] = [];
+  const updatedParticipants = splitInfo.participants.map((p) => {
+    if (p.isMe || !(p.amountCents > 0)) {
+      return { ...p };
+    }
+    const debtId = crypto.randomUUID();
+    const newDebt: DebtRecord = {
+      id: debtId,
+      personName: p.name.trim(),
+      type: 'to_receive',
+      originalAmountCents: p.amountCents,
+      paidAmountCents: 0,
+      payments: [],
+      description: `${txData.n} (Divisão)`,
+      status: 'active',
+      createdAt: toIsoDate(now)
+    };
+    if (p.pixKey?.trim() || S.defaultPixKey?.trim()) {
+      newDebt.pixKey = p.pixKey?.trim() || S.defaultPixKey?.trim();
+    }
+    S.debts.push(newDebt);
+    createdDebtIds.push(debtId);
+
+    const cleanName = p.name.trim();
+    if (cleanName && !S.frequentPeople.includes(cleanName)) {
+      S.frequentPeople.push(cleanName);
+    }
+
+    return { ...p, debtId };
+  });
+
+  const txId = crypto.randomUUID();
+  const tx: Transaction = {
+    ...txData,
+    id: txId,
+    v: myAmountCents,
+    splitInfo: {
+      ...splitInfo,
+      totalPurchaseCents,
+      participants: updatedParticipants
+    }
+  };
+
+  S.tx.push(tx);
+  save();
+
+  return { myTxId: txId, createdDebtIds };
+};
+
+export const splitBillAndCreateDebts = saveTransactionWithSplit;
+
+/* ==========================================================================
+   Compensação Mútua de Dívidas ("Encontro de Contas")
+   ========================================================================== */
+
+/**
+ * Identifica se a mesma pessoa possui valores pendentes em "Quem me deve" e "A quem devo".
+ */
+export const getMutualDebtCompensation = (
+  personName: string
+): {
+  toReceiveCents: number;
+  toPayCents: number;
+  netDifferenceCents: number;
+  canCompensate: boolean;
+} => {
+  const target = personName.trim().toLowerCase();
+  if (!target) {
+    return { toReceiveCents: 0, toPayCents: 0, netDifferenceCents: 0, canCompensate: false };
+  }
+  let toReceiveCents = 0;
+  let toPayCents = 0;
+  for (const d of S.debts) {
+    if (d.status !== 'active' || d.personName.trim().toLowerCase() !== target) continue;
+    const rem = debtRemaining(d);
+    if (d.type === 'to_receive') toReceiveCents += rem;
+    else if (d.type === 'to_pay') toPayCents += rem;
+  }
+  const canCompensate = toReceiveCents > 0 && toPayCents > 0;
+  const netDifferenceCents = Math.abs(toReceiveCents - toPayCents);
+  return { toReceiveCents, toPayCents, netDifferenceCents, canCompensate };
+};
+
+/**
+ * Abate o valor menor do maior entre dívidas cruzadas com a mesma pessoa ("Encontro de Contas").
+ */
+export const settleMutualDebt = (personName: string): boolean => {
+  const comp = getMutualDebtCompensation(personName);
+  if (!comp.canCompensate) return false;
+
+  const compAmount = Math.min(comp.toReceiveCents, comp.toPayCents);
+  const target = personName.trim().toLowerCase();
+  const today = toIsoDate(now);
+
+  let leftToReceive = compAmount;
+  for (const d of S.debts) {
+    if (d.status !== 'active' || d.type !== 'to_receive' || d.personName.trim().toLowerCase() !== target) continue;
+    if (leftToReceive <= 0) break;
+    const rem = debtRemaining(d);
+    const deduct = Math.min(rem, leftToReceive);
+    d.payments.push({
+      id: crypto.randomUUID(),
+      amountCents: deduct,
+      date: today,
+      notes: 'Compensação mútua (Encontro de contas)'
+    });
+    d.paidAmountCents += deduct;
+    if (d.paidAmountCents >= d.originalAmountCents) {
+      d.status = 'settled';
+    }
+    leftToReceive -= deduct;
+  }
+
+  let leftToPay = compAmount;
+  for (const d of S.debts) {
+    if (d.status !== 'active' || d.type !== 'to_pay' || d.personName.trim().toLowerCase() !== target) continue;
+    if (leftToPay <= 0) break;
+    const rem = debtRemaining(d);
+    const deduct = Math.min(rem, leftToPay);
+    d.payments.push({
+      id: crypto.randomUUID(),
+      amountCents: deduct,
+      date: today,
+      notes: 'Compensação mútua (Encontro de contas)'
+    });
+    d.paidAmountCents += deduct;
+    if (d.paidAmountCents >= d.originalAmountCents) {
+      d.status = 'settled';
+    }
+    leftToPay -= deduct;
+  }
+
+  save();
+  return true;
+};
+
+/**
+ * Retorna todos os contatos que possuem dívidas mútuas ativas passíveis de compensação.
+ */
+export const getMutualDebtCandidates = (): Array<{
+  personName: string;
+  toReceiveCents: number;
+  toPayCents: number;
+  netDifferenceCents: number;
+}> => {
+  const people = new Set<string>();
+  for (const d of S.debts) {
+    if (d.status === 'active') people.add(d.personName.trim());
+  }
+  const result: Array<{
+    personName: string;
+    toReceiveCents: number;
+    toPayCents: number;
+    netDifferenceCents: number;
+  }> = [];
+  for (const person of people) {
+    const comp = getMutualDebtCompensation(person);
+    if (comp.canCompensate) {
+      result.push({
+        personName: person,
+        toReceiveCents: comp.toReceiveCents,
+        toPayCents: comp.toPayCents,
+        netDifferenceCents: comp.netDifferenceCents
+      });
+    }
+  }
+  return result;
+};
+
 /**
  * Limpa todas as movimentações, restaura categorias, orçamentos e metas no localStorage.
  */
@@ -1378,9 +1854,13 @@ export const resetState = (): void => {
   S.goalCents = 0;
   S.cards = [];
   S.debts = [];
+  S.accounts = DEFAULT_ACCOUNTS.map((a) => ({ ...a }));
+  S.frequentPeople = [];
   S.quickShortcuts = [];
   S.roundUpEnabled = false;
   S.hasCompletedOnboarding = false;
+  S.paidInvoices = [];
+  delete S.defaultPixKey;
   save();
 };
 
