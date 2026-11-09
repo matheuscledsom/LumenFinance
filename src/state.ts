@@ -7,11 +7,18 @@ import {
   DEFAULT_ACCOUNTS,
   cloneDefaultCategories,
   isValidPaymentMethod,
+  INVOICE_WARNING_LIMIT_RATIO,
+  NEAR_ZERO_THRESHOLD_RATIO,
+  type AccountBalanceDetail,
+  type AccountTransfer,
   type AppState,
   type BankAccount,
   type BillSplitInfo,
   type BudgetProgress,
+  type CardDetailedInvoice,
   type CardInvoice,
+  type CardInvoicePayment,
+  type CardLimitStatus,
   type CategoriesState,
   type Category,
   type CategoryBudget,
@@ -29,6 +36,7 @@ import {
   type RecurringInfo,
   type SplitParticipant,
   type Theme,
+  type ThirdPartyCustodyInflow,
   type ThirdPartyInfo,
   type Transaction,
   type TransactionFilters,
@@ -310,22 +318,98 @@ export const normalizeAccounts = (raw: unknown): BankAccount[] => {
 /**
  * Normaliza o registro de faturas de cartão pagas.
  */
-export const normalizePaidInvoices = (raw: unknown): CardInvoice[] => {
+export const normalizePaidInvoices = (raw: unknown): CardInvoicePayment[] => {
   if (!Array.isArray(raw)) return [];
-  const out: CardInvoice[] = [];
+  const out: CardInvoicePayment[] = [];
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue;
     const r = item as Record<string, unknown>;
     const cardId = asString(r.cardId);
     const monthYear = asString(r.monthYear);
     if (!cardId || !monthYear) continue;
+    const totalPaidCents = asPositiveInt(r.totalPaidCents) || asPositiveInt(r.totalAmountCents);
+    const personalPortionCents =
+      typeof r.personalPortionCents === 'number'
+        ? Math.max(0, Math.round(r.personalPortionCents))
+        : totalPaidCents;
+    const thirdPartyPortionCents =
+      typeof r.thirdPartyPortionCents === 'number'
+        ? Math.max(0, Math.round(r.thirdPartyPortionCents))
+        : 0;
+    const fundingSource =
+      r.fundingSource === 'third_party_custody' ||
+      r.fundingSource === 'mixed' ||
+      r.fundingSource === 'external_third_party' ||
+      r.fundingSource === 'my_account'
+        ? r.fundingSource
+        : 'my_account';
+
     out.push({
+      id: asString(r.id) || crypto.randomUUID(),
       cardId,
       monthYear,
-      totalAmountCents: asPositiveInt(r.totalAmountCents),
-      status: r.status === 'open' || r.status === 'closed' ? r.status : 'paid',
-      paidAt: asString(r.paidAt) || undefined,
+      totalPaidCents,
+      personalPortionCents,
+      thirdPartyPortionCents,
+      paidFromAccountId: asString(r.paidFromAccountId) || undefined,
+      fundingSource,
+      paidAt: asString(r.paidAt) || toIsoDate(now),
+      status: 'paid',
+      totalAmountCents: totalPaidCents,
       paymentTxId: asString(r.paymentTxId) || undefined
+    });
+  }
+  return out;
+};
+
+/**
+ * Normaliza as transferências entre contas bancárias.
+ */
+export const normalizeTransfers = (raw: unknown): AccountTransfer[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: AccountTransfer[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    const fromAccountId = asString(r.fromAccountId);
+    const toAccountId = asString(r.toAccountId);
+    const amountCents = asPositiveInt(r.amountCents);
+    if (!fromAccountId || !toAccountId || !amountCents) continue;
+    out.push({
+      id: asString(r.id) || crypto.randomUUID(),
+      fromAccountId,
+      toAccountId,
+      amountCents,
+      date: asString(r.date) || toIsoDate(now),
+      description: asString(r.description) || undefined,
+      createdAt: asString(r.createdAt) || new Date().toISOString()
+    });
+  }
+  return out;
+};
+
+/**
+ * Normaliza as entradas de custódia de terceiros nas contas bancárias.
+ */
+export const normalizeCustodyInflows = (raw: unknown): ThirdPartyCustodyInflow[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: ThirdPartyCustodyInflow[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    const accountId = asString(r.accountId);
+    const amountCents = asPositiveInt(r.amountCents);
+    if (!accountId || !amountCents) continue;
+    out.push({
+      id: asString(r.id) || crypto.randomUUID(),
+      accountId,
+      personName: asString(r.personName) || 'Amigo',
+      amountCents,
+      usedInInvoiceCents:
+        typeof r.usedInInvoiceCents === 'number' ? Math.max(0, Math.round(r.usedInInvoiceCents)) : 0,
+      sourceDebtId: asString(r.sourceDebtId) || undefined,
+      sourceTxId: asString(r.sourceTxId) || undefined,
+      date: asString(r.date) || toIsoDate(now)
     });
   }
   return out;
@@ -493,7 +577,9 @@ export const S: AppState = {
   quickShortcuts: [],
   hasCompletedOnboarding: false,
   roundUpEnabled: false,
-  paidInvoices: []
+  paidInvoices: [],
+  transfers: [],
+  custodyInflows: []
 };
 
 export let view: ViewName = 'home';
@@ -521,6 +607,8 @@ export const migrate = (raw: unknown): Partial<AppState> => {
       accounts: DEFAULT_ACCOUNTS.map((a) => ({ ...a })),
       frequentPeople: [],
       paidInvoices: [],
+      transfers: [],
+      custodyInflows: [],
       quickShortcuts: [],
       roundUpEnabled: false,
       hasCompletedOnboarding: false
@@ -575,6 +663,8 @@ export const migrate = (raw: unknown): Partial<AppState> => {
     ? normalizeFrequentPeople(data.frequentPeople, debts)
     : [];
   const paidInvoices = normalizePaidInvoices(data.paidInvoices);
+  const transfers = normalizeTransfers(data.transfers);
+  const custodyInflows = normalizeCustodyInflows(data.custodyInflows);
 
   const result: Partial<AppState> = {
     tx,
@@ -586,6 +676,8 @@ export const migrate = (raw: unknown): Partial<AppState> => {
     accounts,
     frequentPeople,
     paidInvoices,
+    transfers,
+    custodyInflows,
     quickShortcuts: normalizeShortcuts(data.quickShortcuts),
     roundUpEnabled: data.roundUpEnabled === true,
     hasCompletedOnboarding:
@@ -786,14 +878,35 @@ export const getPendingReimbursements = (): Transaction[] =>
 
 /**
  * Alterna o status de reembolso (isReimbursed) de uma compra de terceiro e persiste.
+ * Se marcado como reembolsado, registra ThirdPartyCustodyInflow na conta.
+ * Se desmarcado, reverte o inflow de custódia vinculado.
  */
-export const toggleReimbursement = (txId: string): void => {
+export const toggleReimbursement = (txId: string, accountId?: string): void => {
   const item = S.tx.find((t) => String(t.id) === String(txId));
   if (!item || !item.thirdParty?.isThirdParty) return;
+
+  const nextReimbursed = !item.thirdParty.isReimbursed;
   item.thirdParty = {
     ...item.thirdParty,
-    isReimbursed: !item.thirdParty.isReimbursed
+    isReimbursed: nextReimbursed
   };
+
+  if (nextReimbursed) {
+    const defaultAccId =
+      S.accounts.find((a) => a.isDefault)?.id || S.accounts[0]?.id || 'acc-carteira';
+    const targetAccountId = accountId || item.accountId || defaultAccId;
+    S.custodyInflows.push({
+      id: crypto.randomUUID(),
+      accountId: targetAccountId,
+      personName: item.thirdParty.personName || 'Terceiro',
+      amountCents: item.v,
+      usedInInvoiceCents: 0,
+      sourceTxId: item.id,
+      date: toIsoDate(now)
+    });
+  } else {
+    S.custodyInflows = S.custodyInflows.filter((inf) => inf.sourceTxId !== item.id);
+  }
   save();
 };
 
@@ -1065,9 +1178,14 @@ export const get = (): AppState => {
     S.accounts = DEFAULT_ACCOUNTS.map((a) => ({ ...a }));
     S.frequentPeople = [];
     S.paidInvoices = [];
+    S.transfers = [];
+    S.custodyInflows = [];
     S.quickShortcuts = [];
     S.roundUpEnabled = false;
   }
+  S.transfers = Array.isArray(S.transfers) ? S.transfers : [];
+  S.paidInvoices = Array.isArray(S.paidInvoices) ? S.paidInvoices : [];
+  S.custodyInflows = Array.isArray(S.custodyInflows) ? S.custodyInflows : [];
   return S;
 };
 
@@ -1383,6 +1501,10 @@ export const removeCard = (id: string): void => {
   save();
 };
 
+export const addCreditCard = addCard;
+export const updateCreditCard = updateCard;
+export const removeCreditCard = removeCard;
+
 /* ==========================================================================
    Central de Dívidas e Empréstimos
    ========================================================================== */
@@ -1418,138 +1540,171 @@ export const addDebt = (debt: DebtInput): void => {
 
 /**
  * Registra um pagamento (amortização) parcial ou total. Quando atingir o valor original,
- * marca a dívida como 'settled'. Se registerAsIncome e a dívida for 'to_receive',
- * lança automaticamente um ganho em S.tx, associando à conta de destino se fornecida.
+ * marca a dívida como 'settled'.
+ * Em recebimentos ('to_receive'), nunca cria 'in' em S.tx, e sim ThirdPartyCustodyInflow em S.custodyInflows.
+ * Em pagamentos ('to_pay'), registra pagamento na conta e abate custódia se fundingSource === 'third_party_custody'.
  */
 export const amortizeDebt = (
   debtId: string,
   amountCents: number,
   registerAsIncome = false,
-  accountId?: string
+  accountId?: string,
+  fundingSource?: 'my_account' | 'third_party_custody' | 'external'
 ): void => {
   const debt = S.debts.find((d) => d.id === debtId);
   const amount = Math.round(amountCents);
   if (!debt || debt.status === 'settled' || !(amount > 0)) return;
 
   const today = toIsoDate(now);
-  debt.payments.push({ id: crypto.randomUUID(), amountCents: amount, date: today });
+  const defaultAccId =
+    S.accounts.find((a) => a.isDefault)?.id || S.accounts[0]?.id || 'acc-carteira';
+  const selectedAccountId =
+    accountId ||
+    (typeof document !== 'undefined'
+      ? document.querySelector<HTMLSelectElement>('#am-account')?.value
+      : undefined) ||
+    defaultAccId;
+
+  const source = fundingSource || 'my_account';
+
+  const payment: DebtPayment = {
+    id: crypto.randomUUID(),
+    amountCents: amount,
+    date: today,
+    accountId: selectedAccountId,
+    fundingSource: debt.type === 'to_pay' ? source : undefined
+  };
+  debt.payments.push(payment);
   debt.paidAmountCents += amount;
   if (debt.paidAmountCents >= debt.originalAmountCents) {
     debt.status = 'settled';
   }
 
-  const selectedAccountId =
-    accountId ||
-    (typeof document !== 'undefined'
-      ? document.querySelector<HTMLSelectElement>('#am-account')?.value
-      : undefined);
-
-  if (registerAsIncome && debt.type === 'to_receive') {
-    const inCat = S.cats.in.find((c) => c.name === 'Outros') || S.cats.in[0];
-    const incomeTx: Transaction = {
+  if (debt.type === 'to_receive') {
+    S.custodyInflows.push({
       id: crypto.randomUUID(),
-      type: 'in',
-      v: amount,
-      n: `Recebimento: ${debt.personName}`,
-      c: (inCat ? inCat.name : 'Outros') as Category,
-      d: today,
-      pay: 'pix',
-      tags: ['divida'],
-      status: 'confirmed'
-    };
-    if (selectedAccountId) {
-      incomeTx.accountId = selectedAccountId;
+      accountId: selectedAccountId,
+      personName: debt.personName,
+      amountCents: amount,
+      usedInInvoiceCents: 0,
+      sourceDebtId: debt.id,
+      date: today
+    });
+  } else if (debt.type === 'to_pay') {
+    if (source === 'third_party_custody') {
+      let remToDeduct = amount;
+      for (const inflow of S.custodyInflows) {
+        if (remToDeduct <= 0) break;
+        if (inflow.accountId === selectedAccountId) {
+          const avail = inflow.amountCents - inflow.usedInInvoiceCents;
+          if (avail > 0) {
+            const take = Math.min(avail, remToDeduct);
+            inflow.usedInInvoiceCents += take;
+            remToDeduct -= take;
+          }
+        }
+      }
+      if (remToDeduct > 0) {
+        for (const inflow of S.custodyInflows) {
+          if (remToDeduct <= 0) break;
+          const avail = inflow.amountCents - inflow.usedInInvoiceCents;
+          if (avail > 0) {
+            const take = Math.min(avail, remToDeduct);
+            inflow.usedInInvoiceCents += take;
+            remToDeduct -= take;
+          }
+        }
+      }
     }
-    S.tx.push(incomeTx);
-  } else if (registerAsIncome && debt.type === 'to_pay') {
-    const outCat = S.cats.out.find((c) => c.name === 'Outros') || S.cats.out[0];
-    const expenseTx: Transaction = {
-      id: crypto.randomUUID(),
-      type: 'out',
-      v: amount,
-      n: `Pagamento dívida: ${debt.personName}`,
-      c: (outCat ? outCat.name : 'Outros') as Category,
-      d: today,
-      pay: 'pix',
-      tags: ['divida'],
-      status: 'confirmed'
-    };
-    if (selectedAccountId) {
-      expenseTx.accountId = selectedAccountId;
-    }
-    S.tx.push(expenseTx);
   }
   save();
 };
 
 /**
- * Liquida todas as dívidas ativas de uma pessoa específica, com opção de registrar movimentação no extrato.
+ * Liquida todas as dívidas ativas de uma pessoa específica.
+ * Em recebimentos, credita na custódia de terceiros sem inflar receitas pessoais.
  */
 export const settleAllDebtsOfPerson = (
   personName: string,
   debtType: DebtType,
   registerInLedger = false,
-  accountId?: string
+  accountId?: string,
+  fundingSource?: 'my_account' | 'third_party_custody' | 'external'
 ): { totalSettledCents: number; settledCount: number } => {
   const target = personName.trim().toLowerCase();
   const today = toIsoDate(now);
+  const defaultAccId =
+    S.accounts.find((a) => a.isDefault)?.id || S.accounts[0]?.id || 'acc-carteira';
+  const selectedAccountId =
+    accountId ||
+    (typeof document !== 'undefined'
+      ? document.querySelector<HTMLSelectElement>('#st-account')?.value
+      : undefined) ||
+    defaultAccId;
+
+  const source = fundingSource || 'my_account';
   let totalSettledCents = 0;
   let settledCount = 0;
 
   for (const d of S.debts) {
-    if (d.status !== 'active' || d.type !== debtType || d.personName.trim().toLowerCase() !== target) continue;
+    if (
+      d.status !== 'active' ||
+      d.type !== debtType ||
+      d.personName.trim().toLowerCase() !== target
+    )
+      continue;
     const rem = debtRemaining(d);
     if (rem > 0) {
       d.payments.push({
         id: crypto.randomUUID(),
         amountCents: rem,
         date: today,
-        notes: 'Liquidação total'
+        notes: 'Liquidação total',
+        accountId: selectedAccountId,
+        fundingSource: debtType === 'to_pay' ? source : undefined
       });
       d.paidAmountCents += rem;
       d.status = 'settled';
       totalSettledCents += rem;
       settledCount++;
+
+      if (debtType === 'to_receive') {
+        S.custodyInflows.push({
+          id: crypto.randomUUID(),
+          accountId: selectedAccountId,
+          personName: d.personName,
+          amountCents: rem,
+          usedInInvoiceCents: 0,
+          sourceDebtId: d.id,
+          date: today
+        });
+      }
     }
   }
 
-  if (registerInLedger && totalSettledCents > 0) {
-    const selectedAccountId =
-      accountId ||
-      (typeof document !== 'undefined'
-        ? document.querySelector<HTMLSelectElement>('#st-account')?.value
-        : undefined);
-
-    if (debtType === 'to_receive') {
-      const inCat = S.cats.in.find((c) => c.name === 'Outros') || S.cats.in[0];
-      const incomeTx: Transaction = {
-        id: crypto.randomUUID(),
-        type: 'in',
-        v: totalSettledCents,
-        n: `Recebimento total: ${personName.trim()}`,
-        c: (inCat ? inCat.name : 'Outros') as Category,
-        d: today,
-        pay: 'pix',
-        tags: ['divida'],
-        status: 'confirmed'
-      };
-      if (selectedAccountId) incomeTx.accountId = selectedAccountId;
-      S.tx.push(incomeTx);
-    } else {
-      const outCat = S.cats.out.find((c) => c.name === 'Outros') || S.cats.out[0];
-      const expenseTx: Transaction = {
-        id: crypto.randomUUID(),
-        type: 'out',
-        v: totalSettledCents,
-        n: `Pagamento total dívida: ${personName.trim()}`,
-        c: (outCat ? outCat.name : 'Outros') as Category,
-        d: today,
-        pay: 'pix',
-        tags: ['divida'],
-        status: 'confirmed'
-      };
-      if (selectedAccountId) expenseTx.accountId = selectedAccountId;
-      S.tx.push(expenseTx);
+  if (debtType === 'to_pay' && source === 'third_party_custody' && totalSettledCents > 0) {
+    let remToDeduct = totalSettledCents;
+    for (const inflow of S.custodyInflows) {
+      if (remToDeduct <= 0) break;
+      if (inflow.accountId === selectedAccountId) {
+        const avail = inflow.amountCents - inflow.usedInInvoiceCents;
+        if (avail > 0) {
+          const take = Math.min(avail, remToDeduct);
+          inflow.usedInInvoiceCents += take;
+          remToDeduct -= take;
+        }
+      }
+    }
+    if (remToDeduct > 0) {
+      for (const inflow of S.custodyInflows) {
+        if (remToDeduct <= 0) break;
+        const avail = inflow.amountCents - inflow.usedInInvoiceCents;
+        if (avail > 0) {
+          const take = Math.min(avail, remToDeduct);
+          inflow.usedInInvoiceCents += take;
+          remToDeduct -= take;
+        }
+      }
     }
   }
 
@@ -1726,30 +1881,159 @@ export const getAccountById = (id?: string): BankAccount | undefined => {
 };
 
 /**
- * Calcula o saldo consolidado atual de cada conta bancária cadastrada:
- * saldo inicial + ganhos confirmados - despesas confirmadas (exceto compras no crédito não pagas).
+ * Atualiza os dados de uma conta bancária ou carteira existente e persiste.
  */
-export const getAccountBalances = (): Array<{
-  account: BankAccount;
-  currentBalanceCents: number;
-}> => {
+export const updateAccount = (
+  id: string,
+  patch: Partial<Omit<BankAccount, 'id'>>
+): boolean => {
+  const acc = S.accounts.find((a) => a.id === id);
+  if (!acc) return false;
+  if (typeof patch.name === 'string' && patch.name.trim()) acc.name = patch.name.trim();
+  if (typeof patch.icon === 'string' && patch.icon.trim()) acc.icon = patch.icon.trim();
+  if (typeof patch.color === 'string' && /^#[0-9a-f]{6}$/i.test(patch.color)) acc.color = patch.color;
+  if (typeof patch.initialBalanceCents === 'number' && Number.isFinite(patch.initialBalanceCents)) {
+    acc.initialBalanceCents = Math.round(patch.initialBalanceCents);
+  }
+  if (typeof patch.isDefault === 'boolean') {
+    if (patch.isDefault) {
+      for (const a of S.accounts) a.isDefault = false;
+      acc.isDefault = true;
+    } else {
+      acc.isDefault = false;
+    }
+  }
+  save();
+  return true;
+};
+
+/**
+ * Registra uma transferência entre contas bancárias (sem gerar despesa ou ganho pessoal) e persiste.
+ */
+export const transferBetweenAccounts = (
+  fromId: string,
+  toId: string,
+  amountCents: number,
+  date?: string,
+  desc?: string
+): AccountTransfer | null => {
+  const fromAcc = S.accounts.find((a) => a.id === fromId);
+  const toAcc = S.accounts.find((a) => a.id === toId);
+  const amount = Math.round(amountCents);
+  if (!fromAcc || !toAcc || fromId === toId || amount <= 0) {
+    return null;
+  }
+  const transfer: AccountTransfer = {
+    id: crypto.randomUUID(),
+    fromAccountId: fromId,
+    toAccountId: toId,
+    amountCents: amount,
+    date: date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : toIsoDate(now),
+    description: desc?.trim() || undefined,
+    createdAt: new Date().toISOString()
+  };
+  S.transfers.push(transfer);
+  save();
+  return transfer;
+};
+
+/**
+ * Calcula o saldo consolidado atual de cada conta bancária cadastrada:
+ * personalBalanceCents = initialBalanceCents + (entradas na conta) - (saídas não crédito) - (dívidas pagas com my_account) - (personalPortionCents faturas) + (transferências recebidas) - (transferências enviadas).
+ * thirdPartyCustodyCents = soma de (amountCents - usedInInvoiceCents) em custódia.
+ * totalBankBalanceCents = personalBalanceCents + thirdPartyCustodyCents.
+ * isNearZero = personalBalanceCents <= (receitaMensalEstimada * NEAR_ZERO_THRESHOLD_RATIO).
+ */
+export const getAccountBalances = (): AccountBalanceDetail[] => {
+  const monthlyIncome = S.tx
+    .filter((t) => t.type === 'in' && ym(t.d) === cur && t.status === 'confirmed')
+    .reduce((acc, t) => acc + t.v, 0);
+  const nearZeroThreshold =
+    monthlyIncome > 0 ? Math.round(monthlyIncome * NEAR_ZERO_THRESHOLD_RATIO) : 5000;
+
   return S.accounts.map((account) => {
-    let balance = account.initialBalanceCents;
+    let personalBalanceCents = account.initialBalanceCents;
+
+    // Transações bancárias da conta
     for (const t of S.tx) {
       if (t.accountId !== account.id || t.status !== 'confirmed') continue;
       if (t.type === 'in') {
-        balance += t.v;
-      } else if (t.type === 'out') {
-        if (t.pay !== 'credit') {
-          balance -= t.v;
+        personalBalanceCents += t.v;
+      } else if (t.type === 'out' && t.pay !== 'credit') {
+        personalBalanceCents -= t.v;
+      }
+    }
+
+    // Pagamentos de dívidas com recurso próprio desta conta
+    for (const d of S.debts) {
+      if (d.type !== 'to_pay') continue;
+      for (const p of d.payments) {
+        if (p.accountId === account.id && (p.fundingSource === 'my_account' || !p.fundingSource)) {
+          personalBalanceCents -= p.amountCents;
         }
       }
     }
+
+    // Faturas pagas com esta conta (parcela pessoal)
+    for (const pi of S.paidInvoices) {
+      if (pi.paidFromAccountId === account.id && pi.personalPortionCents > 0) {
+        personalBalanceCents -= pi.personalPortionCents;
+      }
+    }
+
+    // Transferências
+    for (const tr of S.transfers) {
+      if (tr.toAccountId === account.id) {
+        personalBalanceCents += tr.amountCents;
+      }
+      if (tr.fromAccountId === account.id) {
+        personalBalanceCents -= tr.amountCents;
+      }
+    }
+
+    // Custódia de terceiros na conta
+    let thirdPartyCustodyCents = 0;
+    for (const inf of S.custodyInflows) {
+      if (inf.accountId === account.id) {
+        const remainingCustody = Math.max(0, inf.amountCents - inf.usedInInvoiceCents);
+        thirdPartyCustodyCents += remainingCustody;
+      }
+    }
+
+    const totalBankBalanceCents = personalBalanceCents + thirdPartyCustodyCents;
+    const isNearZero = personalBalanceCents <= nearZeroThreshold;
+
     return {
       account,
-      currentBalanceCents: balance
+      totalBankBalanceCents,
+      personalBalanceCents,
+      thirdPartyCustodyCents,
+      isNearZero,
+      currentBalanceCents: totalBankBalanceCents
     };
   });
+};
+
+/**
+ * Ajusta o saldo inicial da conta para que o totalBankBalanceCents bata exatamente
+ * com o saldo real do extrato bancário informado, sem alterar a custódia de terceiros.
+ */
+export const adjustAccountBalance = (
+  accountId: string,
+  realTotalBankBalanceCents: number
+): boolean => {
+  const acc = S.accounts.find((a) => a.id === accountId);
+  if (!acc) return false;
+  const balances = getAccountBalances();
+  const currentDetail = balances.find((b) => b.account.id === accountId);
+  const currentTotal = currentDetail
+    ? currentDetail.totalBankBalanceCents
+    : acc.initialBalanceCents;
+  const target = Math.round(realTotalBankBalanceCents);
+  const diff = target - currentTotal;
+  acc.initialBalanceCents += diff;
+  save();
+  return true;
 };
 
 /* ==========================================================================
@@ -1958,6 +2242,8 @@ export const resetState = (): void => {
   S.roundUpEnabled = false;
   S.hasCompletedOnboarding = false;
   S.paidInvoices = [];
+  S.transfers = [];
+  S.custodyInflows = [];
   delete S.defaultPixKey;
   save();
 };

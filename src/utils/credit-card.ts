@@ -3,13 +3,14 @@
    ========================================================================== */
 
 import { S, save } from '../state';
-import type {
-  CardInvoice,
-  CardLimitUsage,
-  Category,
-  CreditCard,
-  PaymentMethod,
-  Transaction
+import {
+  INVOICE_WARNING_LIMIT_RATIO,
+  type CardDetailedInvoice,
+  type CardInvoicePayment,
+  type CardLimitStatus,
+  type CardLimitUsage,
+  type CreditCard,
+  type Transaction
 } from '../types/finance';
 import { now, prevM, toIsoDate, ym } from './date';
 
@@ -95,116 +96,255 @@ export const getInvoiceTotal = (cardId: string, invoiceYm: string): number => {
     .reduce((a, t) => a + getTransactionCardAmount(t), 0);
 };
 
-export interface CardInvoiceStatus {
-  totalCents: number;
-  status: 'open' | 'closed' | 'paid';
-  transactions: Transaction[];
-  paidInvoice?: CardInvoice;
-}
-
 /**
- * Obtém o status da fatura de um cartão em uma competência: aberta, fechada ou paga.
+ * Obtém o detalhamento analítico da fatura de um cartão em uma competência,
+ * separando compras pessoais de compras para terceiros/divididas e computando
+ * os pagamentos já realizados.
  */
-export const getCardInvoiceStatus = (cardId: string, monthYear: string): CardInvoiceStatus => {
+export const getCardDetailedInvoice = (
+  cardId: string,
+  monthYear: string
+): CardDetailedInvoice => {
   const card = S.cards.find((c) => c.id === cardId);
-  const paidInvoice = S.paidInvoices?.find(
-    (inv) => inv.cardId === cardId && inv.monthYear === monthYear && inv.status === 'paid'
-  );
   if (!card) {
-    return { totalCents: 0, status: 'open', transactions: [] };
+    return {
+      cardId,
+      monthYear,
+      totalCents: 0,
+      personalCents: 0,
+      thirdPartyCents: 0,
+      paidCents: 0,
+      remainingCents: 0,
+      status: 'open',
+      items: []
+    };
   }
 
-  const transactions = S.tx.filter(
+  const items = S.tx.filter(
     (t) =>
       t.type === 'out' &&
       t.cardId === cardId &&
       calculateInvoiceMonth(t.d, card.closingDay) === monthYear
   );
 
-  const calculatedTotal = transactions.reduce(
-    (a, t) => a + getTransactionCardAmount(t),
+  let personalCents = 0;
+  let thirdPartyCents = 0;
+
+  for (const t of items) {
+    if (t.splitInfo && t.splitInfo.participants.length > 0) {
+      const totalPurchase = t.splitInfo.totalPurchaseCents || t.v;
+      const mePart = t.splitInfo.participants.find((p) => p.isMe);
+      const myAmount = mePart ? mePart.amountCents : t.v;
+      personalCents += myAmount;
+      thirdPartyCents += Math.max(0, totalPurchase - myAmount);
+    } else if (t.thirdParty?.isThirdParty) {
+      thirdPartyCents += t.v;
+    } else {
+      personalCents += t.v;
+    }
+  }
+
+  const totalCents = personalCents + thirdPartyCents;
+
+  const paidPayments = (S.paidInvoices || []).filter(
+    (p) => p.cardId === cardId && p.monthYear === monthYear
+  );
+  const paidCents = paidPayments.reduce(
+    (acc, p) => acc + (p.totalPaidCents || p.totalAmountCents || 0),
     0
   );
-
-  if (paidInvoice) {
-    return {
-      totalCents: paidInvoice.totalAmountCents || calculatedTotal,
-      status: 'paid',
-      transactions,
-      paidInvoice
-    };
-  }
+  const remainingCents = Math.max(0, totalCents - paidCents);
 
   const todayStr = toIsoDate(now);
   const openInvoiceYm = calculateInvoiceMonth(todayStr, card.closingDay);
 
-  let status: 'open' | 'closed' | 'paid' = 'open';
-  if (monthYear < openInvoiceYm) {
+  let status: 'open' | 'closed' | 'paid' | 'partial' = 'open';
+  if (totalCents > 0 && remainingCents <= 0) {
+    status = 'paid';
+  } else if (paidCents > 0 && remainingCents > 0) {
+    status = 'partial';
+  } else if (monthYear < openInvoiceYm) {
     status = 'closed';
   } else if (monthYear === openInvoiceYm) {
     const currentDay = now.getDate();
     status = currentDay >= card.closingDay ? 'closed' : 'open';
+  } else {
+    status = 'open';
   }
 
-  return { totalCents: calculatedTotal, status, transactions };
+  return {
+    cardId,
+    monthYear,
+    totalCents,
+    personalCents,
+    thirdPartyCents,
+    paidCents,
+    remainingCents,
+    status,
+    items
+  };
 };
 
 /**
- * Liquida a fatura de um cartão de crédito, registrando o pagamento em S.tx,
- * salvando em S.paidInvoices e liberando o limite disponível.
+ * Calcula o status de limite do cartão, considerando compras abertas e futuras menos pagamentos realizados.
  */
-export const payCardInvoice = (
-  cardId: string,
-  monthYear: string,
-  paymentMethod: PaymentMethod = 'money',
-  accountId?: string
-): Transaction | null => {
+export const getCardLimitStatus = (cardId: string): CardLimitStatus => {
   const card = S.cards.find((c) => c.id === cardId);
+  const limitCents = card?.limitCents || 0;
+  if (!card) {
+    return {
+      cardId,
+      limitCents: 0,
+      committedCents: 0,
+      availableCents: 0,
+      usageRatio: 0,
+      isWarning: false
+    };
+  }
+
+  const cardTxs = S.tx.filter((t) => t.type === 'out' && t.cardId === cardId);
+  const totalPurchasedCents = cardTxs.reduce(
+    (acc, t) => acc + getTransactionCardAmount(t),
+    0
+  );
+
+  const totalPaidCents = (S.paidInvoices || [])
+    .filter((p) => p.cardId === cardId)
+    .reduce((acc, p) => acc + (p.totalPaidCents || p.totalAmountCents || 0), 0);
+
+  const committedCents = Math.max(0, totalPurchasedCents - totalPaidCents);
+  const availableCents = Math.max(0, limitCents - committedCents);
+  const usageRatio = limitCents > 0 ? committedCents / limitCents : 0;
+  const isWarning = limitCents > 0 && usageRatio >= INVOICE_WARNING_LIMIT_RATIO;
+
+  return {
+    cardId,
+    limitCents,
+    committedCents,
+    availableCents,
+    usageRatio,
+    isWarning
+  };
+};
+
+export interface CardInvoiceStatus {
+  totalCents: number;
+  status: 'open' | 'closed' | 'paid';
+  transactions: Transaction[];
+  paidInvoice?: CardInvoicePayment;
+}
+
+/**
+ * Obtém o status da fatura de um cartão em uma competência: aberta, fechada ou paga.
+ */
+export const getCardInvoiceStatus = (cardId: string, monthYear: string): CardInvoiceStatus => {
+  const detailed = getCardDetailedInvoice(cardId, monthYear);
+  const paidInvoice = S.paidInvoices?.find(
+    (inv) => inv.cardId === cardId && inv.monthYear === monthYear && inv.status === 'paid'
+  );
+
+  return {
+    totalCents: detailed.totalCents,
+    status: detailed.status === 'partial' ? 'open' : detailed.status,
+    transactions: detailed.items,
+    paidInvoice
+  };
+};
+
+export interface PayCardInvoiceOptions {
+  cardId: string;
+  monthYear: string;
+  totalPaidCents: number;
+  useThirdPartyCustodyCents: number;
+  paidFromAccountId?: string;
+  isExternalThirdParty?: boolean;
+}
+
+/**
+ * Liquida a fatura de um cartão de crédito, consumindo custódia de terceiros em FIFO
+ * e abatendo a parcela pessoal da conta bancária de origem.
+ */
+export const payCardInvoice = (options: PayCardInvoiceOptions): CardInvoicePayment | null => {
+  const card = S.cards.find((c) => c.id === options.cardId);
   if (!card) return null;
 
-  const currentStatus = getCardInvoiceStatus(cardId, monthYear);
-  if (currentStatus.status === 'paid' || currentStatus.totalCents <= 0) {
-    return null;
+  const totalPaid = Math.round(options.totalPaidCents);
+  if (totalPaid <= 0) return null;
+
+  const useCustody = Math.max(
+    0,
+    Math.min(totalPaid, Math.round(options.useThirdPartyCustodyCents || 0))
+  );
+
+  // Consome custódia de terceiros em ordem FIFO
+  if (useCustody > 0) {
+    let remCustody = useCustody;
+    // 1. Prioriza a conta selecionada
+    if (options.paidFromAccountId) {
+      for (const inf of S.custodyInflows) {
+        if (remCustody <= 0) break;
+        if (inf.accountId === options.paidFromAccountId) {
+          const avail = inf.amountCents - inf.usedInInvoiceCents;
+          if (avail > 0) {
+            const take = Math.min(avail, remCustody);
+            inf.usedInInvoiceCents += take;
+            remCustody -= take;
+          }
+        }
+      }
+    }
+    // 2. Demais contas FIFO se ainda restar
+    if (remCustody > 0) {
+      for (const inf of S.custodyInflows) {
+        if (remCustody <= 0) break;
+        const avail = inf.amountCents - inf.usedInInvoiceCents;
+        if (avail > 0) {
+          const take = Math.min(avail, remCustody);
+          inf.usedInInvoiceCents += take;
+          remCustody -= take;
+        }
+      }
+    }
   }
 
-  const invoiceAmount = currentStatus.totalCents;
-  const label = formatInvoiceLabel(monthYear);
-  const cat =
-    S.cats.out.find((c) => c.name === 'Moradia' || c.name === 'Outros') || S.cats.out[0];
+  let personalPortionCents = 0;
+  let thirdPartyPortionCents = 0;
+  let fundingSource: CardInvoicePayment['fundingSource'] = 'my_account';
 
-  const paymentTx: Transaction = {
+  if (options.isExternalThirdParty) {
+    thirdPartyPortionCents = totalPaid;
+    personalPortionCents = 0;
+    fundingSource = 'external_third_party';
+  } else {
+    personalPortionCents = Math.max(0, totalPaid - useCustody);
+    thirdPartyPortionCents = totalPaid - personalPortionCents;
+    if (useCustody > 0) {
+      fundingSource = personalPortionCents > 0 ? 'mixed' : 'third_party_custody';
+    } else {
+      fundingSource = 'my_account';
+    }
+  }
+
+  const paymentRecord: CardInvoicePayment = {
     id: crypto.randomUUID(),
-    type: 'out',
-    v: invoiceAmount,
-    n: `Pagamento de Fatura - ${card.name} (${label})`,
-    c: (cat ? cat.name : 'Moradia') as Category,
-    d: toIsoDate(now),
-    pay: paymentMethod,
-    tags: ['fatura', 'cartao'],
-    status: 'confirmed'
+    cardId: options.cardId,
+    monthYear: options.monthYear,
+    totalPaidCents: totalPaid,
+    personalPortionCents,
+    thirdPartyPortionCents,
+    paidFromAccountId: options.paidFromAccountId,
+    fundingSource,
+    paidAt: toIsoDate(now),
+    status: 'paid',
+    totalAmountCents: totalPaid
   };
-
-  if (accountId) {
-    paymentTx.accountId = accountId;
-  }
-
-  S.tx.push(paymentTx);
 
   if (!S.paidInvoices) {
     S.paidInvoices = [];
   }
-
-  S.paidInvoices.push({
-    cardId,
-    monthYear,
-    totalAmountCents: invoiceAmount,
-    status: 'paid',
-    paidAt: toIsoDate(now),
-    paymentTxId: paymentTx.id
-  });
-
+  S.paidInvoices.push(paymentRecord);
   save();
-  return paymentTx;
+  return paymentRecord;
 };
 
 export interface CommitmentSegment {

@@ -12,6 +12,7 @@ export type RecurringFrequency = 'monthly';
 
 export const BUDGET_WARNING_THRESHOLD_RATIO = 0.8;
 export const NEAR_ZERO_THRESHOLD_RATIO = 0.1;
+export const INVOICE_WARNING_LIMIT_RATIO = 0.85;
 
 export interface BankAccount {
   id: string;
@@ -27,6 +28,72 @@ export const DEFAULT_ACCOUNTS: BankAccount[] = [
   { id: 'acc-nubank', name: 'Nubank', icon: '🟣', color: '#820ad1', initialBalanceCents: 0 },
   { id: 'acc-inter', name: 'Banco Inter', icon: '🟠', color: '#ff7a00', initialBalanceCents: 0 }
 ];
+
+export interface AccountTransfer {
+  id: string;
+  fromAccountId: string;
+  toAccountId: string;
+  amountCents: number;
+  date: string;
+  description?: string;
+  createdAt: string;
+}
+
+export interface ThirdPartyCustodyInflow {
+  id: string;
+  accountId: string;
+  personName: string;
+  amountCents: number;
+  usedInInvoiceCents: number;
+  sourceDebtId?: string;
+  sourceTxId?: string;
+  date: string;
+}
+
+export interface CardInvoicePayment {
+  id: string;
+  cardId: string;
+  monthYear: string;
+  totalPaidCents: number;
+  personalPortionCents: number;
+  thirdPartyPortionCents: number;
+  paidFromAccountId?: string;
+  fundingSource: 'my_account' | 'third_party_custody' | 'mixed' | 'external_third_party';
+  paidAt: string;
+  status?: 'open' | 'closed' | 'paid';
+  totalAmountCents?: number;
+  paymentTxId?: string;
+}
+
+export interface AccountBalanceDetail {
+  account: BankAccount;
+  totalBankBalanceCents: number;
+  personalBalanceCents: number;
+  thirdPartyCustodyCents: number;
+  isNearZero: boolean;
+  currentBalanceCents: number;
+}
+
+export interface CardDetailedInvoice {
+  cardId: string;
+  monthYear: string;
+  totalCents: number;
+  personalCents: number;
+  thirdPartyCents: number;
+  paidCents: number;
+  remainingCents: number;
+  status: 'open' | 'closed' | 'paid' | 'partial';
+  items: Transaction[];
+}
+
+export interface CardLimitStatus {
+  cardId: string;
+  limitCents: number;
+  committedCents: number;
+  availableCents: number;
+  usageRatio: number;
+  isWarning: boolean;
+}
 
 export interface SplitParticipant {
   id: string;
@@ -180,7 +247,7 @@ export type InCategory =
 
 export type Category = OutCategory | InCategory | (string & {});
 
-export type ViewName = 'home' | 'stats' | 'cal' | 'profile' | 'history' | 'debts';
+export type ViewName = 'home' | 'cards' | 'stats' | 'cal' | 'debts' | 'profile' | 'history';
 
 export type PaymentMethod = 'money' | 'pix' | 'debit' | 'credit' | 'bank_slip';
 
@@ -261,6 +328,8 @@ export interface DebtPayment {
   amountCents: number;
   date: string;
   notes?: string;
+  accountId?: string;
+  fundingSource?: 'my_account' | 'third_party_custody' | 'external';
 }
 
 export type DebtType = 'to_receive' | 'to_pay';
@@ -313,6 +382,8 @@ export interface AppState {
   quickShortcuts: QuickShortcut[];
   hasCompletedOnboarding: boolean;
   roundUpEnabled: boolean;
-  paidInvoices: CardInvoice[];
+  paidInvoices: CardInvoicePayment[];
+  transfers: AccountTransfer[];
+  custodyInflows: ThirdPartyCustodyInflow[];
   defaultPixKey?: string;
 }
