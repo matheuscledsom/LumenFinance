@@ -1185,6 +1185,169 @@ input {
   border-color: var(--tx);
 }
 
+/* Faixa de saldo por conta bancária */
+.account-pills-bar {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 0 8px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.account-pills-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.account-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 99px;
+  background: var(--card);
+  border: 1px solid var(--bd);
+  font-size: .8rem;
+  white-space: nowrap;
+  color: var(--tx);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
+}
+
+.account-pill .acc-name {
+  color: var(--mut);
+  font-weight: 500;
+}
+
+/* Card de Faturas e Compromissos do Mês com barra segmentada */
+.commitments-card {
+  margin-top: 4px;
+}
+
+.commitments-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 99px;
+  background: var(--bd);
+  overflow: hidden;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+
+.commitments-bar-seg {
+  height: 100%;
+  border-radius: 99px;
+  min-width: 4px;
+}
+
+.commitments-bar-empty {
+  height: 100%;
+  background: var(--bd);
+  opacity: .5;
+}
+
+.commitments-legend {
+  display: grid;
+  gap: 8px;
+}
+
+.commitments-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  font-size: .84rem;
+}
+
+.commitments-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.commitments-item-left .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.commitments-item-right {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  text-align: right;
+}
+
+.commitments-receive {
+  background: color-mix(in srgb, var(--pos) 6%, var(--bg));
+  border-color: color-mix(in srgb, var(--pos) 25%, var(--bd));
+}
+
+/* Badges enriquecidas na lista de transações */
+.card-badge {
+  border-style: solid;
+  font-weight: 600;
+}
+
+.split-badge {
+  background: color-mix(in srgb, var(--ac) 12%, var(--bg));
+  border-color: color-mix(in srgb, var(--ac) 35%, var(--bd));
+  font-weight: 600;
+}
+
+/* Resumo Agrupado por Pessoa em Dívidas */
+.debtors-grouped-section {
+  margin-bottom: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.debtors-grouped-title {
+  font-size: .84rem;
+  font-weight: 600;
+  color: var(--tx);
+}
+
+.debtors-grouped-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px;
+}
+
+.debtor-card-grouped {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--bd);
+}
+
+.debtor-grouped-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.debtor-grouped-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.debtor-grouped-actions .btn {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: .78rem;
+}
+
 /* Barra de atalhos rápidos (Home) */
 .bal {
   touch-action: manipulation;
@@ -1548,9 +1711,24 @@ input {
 [data-theme="xp"] .split-me-row,
 [data-theme="xp"] .split-summary-bar,
 [data-theme="xp"] .split-person-val,
-[data-theme="xp"] .split-val-input {
+[data-theme="xp"] .split-val-input,
+[data-theme="xp"] .account-pill,
+[data-theme="xp"] .commitments-item,
+[data-theme="xp"] .commitments-bar,
+[data-theme="xp"] .debtor-card-grouped {
   border-radius: 4px;
   border-color: #7f9db9;
+}
+
+[data-theme="xp"] .account-pill,
+[data-theme="xp"] .debtor-card-grouped,
+[data-theme="xp"] .commitments-item {
+  background: #fff;
+  color: #111;
+}
+
+[data-theme="xp"] .commitments-bar {
+  background: #e3e1d2;
 }
 
 [data-theme="xp"] .btn-inline-action {
@@ -1625,7 +1803,8 @@ input {
     transition: background-color .15s, border-color .15s, color .15s, transform .15s;
   }
 
-  .vc-fill {
+  .vc-fill,
+  .commitments-bar-seg {
     transition: width .25s ease;
   }
 

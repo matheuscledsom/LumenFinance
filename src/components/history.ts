@@ -27,6 +27,8 @@ export const historyFilters: TransactionFilters = {
   type: 'all',
   categoryId: 'all',
   paymentMethod: 'all',
+  cardId: 'all',
+  accountId: 'all',
   tag: '',
   startDate: '',
   endDate: '',
@@ -68,6 +70,8 @@ export const clearHistoryFilters = (): void => {
   historyFilters.type = 'all';
   historyFilters.categoryId = 'all';
   historyFilters.paymentMethod = 'all';
+  historyFilters.cardId = 'all';
+  historyFilters.accountId = 'all';
   historyFilters.tag = '';
   historyFilters.startDate = '';
   historyFilters.endDate = '';
@@ -85,6 +89,8 @@ export const hasActiveHistoryFilters = (): boolean =>
       (historyFilters.type && historyFilters.type !== 'all') ||
       (historyFilters.categoryId && historyFilters.categoryId !== 'all') ||
       (historyFilters.paymentMethod && historyFilters.paymentMethod !== 'all') ||
+      (historyFilters.cardId && historyFilters.cardId !== 'all') ||
+      (historyFilters.accountId && historyFilters.accountId !== 'all') ||
       (historyFilters.tag && historyFilters.tag.trim()) ||
       (historyFilters.startDate && historyFilters.startDate.trim()) ||
       (historyFilters.endDate && historyFilters.endDate.trim()) ||
@@ -124,13 +130,33 @@ export function renderHistoryResultsSection(): string {
     ? visibleItems
         .map((t) => {
           const icon = getCategoryIcon(S.cats, t.type, t.c);
-          const payLabel = getPaymentLabel(normalizePay(t.pay));
           const tags = normalizeTags(t.tags);
           const tagsHtml = tags
             .map((tag) => `<span class="pill-tag">#${esc(tag)}</span>`)
             .join('');
+
+          const card =
+            t.pay === 'credit' && t.cardId ? S.cards.find((c) => c.id === t.cardId) : undefined;
+          const account = t.accountId ? S.accounts.find((a) => a.id === t.accountId) : undefined;
+
+          let payBadge = '';
+          if (card) {
+            const instStr =
+              t.installments && t.installments.total > 1
+                ? ` · ${t.installments.current}/${t.installments.total}`
+                : '';
+            payBadge = `<span class="pill-sub card-badge" style="border-color:${esc(card.color)}">💳 ${esc(card.name)}${instStr}</span>`;
+          } else {
+            const baseLabel = getPaymentLabel(normalizePay(t.pay));
+            if (account && t.pay !== 'credit') {
+              payBadge = `<span class="mut">${esc(baseLabel)} · ${esc(account.icon)} ${esc(account.name)}</span>`;
+            } else {
+              payBadge = `<span class="mut">${esc(baseLabel)}</span>`;
+            }
+          }
+
           const instBadge =
-            t.installments && t.installments.total > 1
+            !card && t.installments && t.installments.total > 1
               ? `<span class="pill-sub">💳 ${t.installments.current}/${t.installments.total}</span>`
               : '';
           const recBadge = t.recurring ? `<span class="pill-sub">🔁 Fixa</span>` : '';
@@ -141,9 +167,14 @@ export function renderHistoryResultsSection(): string {
           const tpBadge = t.thirdParty?.isThirdParty
             ? `<span class="pill-sub tp-badge ${t.thirdParty.isReimbursed ? 'pos' : 'tp-pending'}" data-toggle-tp="${esc(t.id)}" role="button" tabindex="0" aria-label="Alternar cobrança de ${esc(t.thirdParty.personName)}">👤 ${esc(t.thirdParty.personName)} · ${t.thirdParty.isReimbursed ? '✓ Pago' : 'A Cobrar'}</span>`
             : '';
-          const subBadges = tpBadge + instBadge + recBadge + pendingBadge;
+          const splitBadge =
+            t.splitInfo && t.splitInfo.participants.length > 1
+              ? `<span class="pill-sub split-badge">🤝 Dividido (${t.splitInfo.participants.length} pessoas)</span>`
+              : '';
+
+          const subBadges = tpBadge + splitBadge + instBadge + recBadge + pendingBadge;
           const hasChips = Boolean(subBadges || tagsHtml);
-          const payAndTags = `<span class="tx-meta"><span class="mut">${esc(payLabel)}${hasChips ? ' · ' : ''}</span>${subBadges}${tagsHtml}</span>`;
+          const payAndTags = `<span class="tx-meta">${payBadge}${hasChips ? ' · ' : ''}${subBadges}${tagsHtml}</span>`;
           return `<button class="tx ${t.type}${t.status === 'pending' ? ' pending-tx' : ''}" data-id="${esc(t.id)}" aria-label="Editar ${esc(t.n)}"><span class="av">${esc(icon)}</span><span class="m"><b>${esc(t.n)}</b><span class="mut">${esc(t.c)} · ${dfmt(t.d)}</span>${payAndTags}</span><b class="num ${t.type === 'in' ? 'pos' : 'neg'}">${t.type === 'in' ? '+' : '−'} ${brl(t.v)}</b></button>`;
         })
         .join('')
@@ -204,6 +235,26 @@ export function history(): string {
         .join('')}</div>`
     : '';
 
+  const activeCard = historyFilters.cardId || 'all';
+  const cardOptionsHtml =
+    `<option value="all"${activeCard === 'all' ? ' selected' : ''}>Todos os cartões</option>` +
+    S.cards
+      .map(
+        (c) =>
+          `<option value="${esc(c.id)}"${activeCard === c.id ? ' selected' : ''}>💳 ${esc(c.name)}${c.lastDigits ? ` (•••• ${esc(c.lastDigits)})` : ''}</option>`
+      )
+      .join('');
+
+  const activeAccount = historyFilters.accountId || 'all';
+  const accountOptionsHtml =
+    `<option value="all"${activeAccount === 'all' ? ' selected' : ''}>Todas as contas</option>` +
+    S.accounts
+      .map(
+        (a) =>
+          `<option value="${esc(a.id)}"${activeAccount === a.id ? ' selected' : ''}>${esc(a.icon)} ${esc(a.name)}</option>`
+      )
+      .join('');
+
   const payChipsHtml = PAYMENT_METHODS.map((p: { id: PaymentMethod; label: string; icon?: string }) => {
     const isSel = activePay === p.id;
     return `<button type="button" class="filter-chip${isSel ? ' active' : ''}" data-hist-pay="${esc(p.id)}" aria-pressed="${isSel}">${esc(p.icon || '')} ${esc(p.label)}</button>`;
@@ -223,10 +274,28 @@ ${payChipsHtml}
 <div class="hist-selects-grid">
 <label class="mut" style="margin:0;font-size:.78rem">Categoria<select id="hist-cat" aria-label="Filtrar por categoria">${catOptionsHtml}</select></label>
 <label class="mut" style="margin:0;font-size:.78rem">Pagamento<select id="hist-pay" aria-label="Filtrar por forma de pagamento">${payOptionsHtml}</select></label>
+<label class="mut" style="margin:0;font-size:.78rem">Cartão<select id="hist-card" aria-label="Filtrar por cartão de crédito">${cardOptionsHtml}</select></label>
+<label class="mut" style="margin:0;font-size:.78rem">Conta / Banco<select id="hist-account" aria-label="Filtrar por conta bancária">${accountOptionsHtml}</select></label>
 <label class="mut" style="margin:0;font-size:.78rem">De<input id="hist-start" type="date" value="${esc(historyFilters.startDate || '')}" aria-label="Data inicial"></label>
 <label class="mut" style="margin:0;font-size:.78rem">Até<input id="hist-end" type="date" value="${esc(historyFilters.endDate || '')}" aria-label="Data final"></label>
 </div>
 ${tagsBarHtml}
 </div></section>
 <div id="hist-dynamic-area" class="wide" style="display:grid;gap:14px">${renderHistoryResultsSection()}</div>`;
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('change', (e: Event) => {
+    const target = e.target as HTMLSelectElement | null;
+    if (!target) return;
+    if (target.id === 'hist-card') {
+      updateHistoryFilters({ cardId: target.value });
+      const dynArea = document.querySelector<HTMLElement>('#hist-dynamic-area');
+      if (dynArea) dynArea.innerHTML = renderHistoryResultsSection();
+    } else if (target.id === 'hist-account') {
+      updateHistoryFilters({ accountId: target.value });
+      const dynArea = document.querySelector<HTMLElement>('#hist-dynamic-area');
+      if (dynArea) dynArea.innerHTML = renderHistoryResultsSection();
+    }
+  });
 }

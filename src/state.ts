@@ -1438,6 +1438,12 @@ export const amortizeDebt = (
     debt.status = 'settled';
   }
 
+  const selectedAccountId =
+    accountId ||
+    (typeof document !== 'undefined'
+      ? document.querySelector<HTMLSelectElement>('#am-account')?.value
+      : undefined);
+
   if (registerAsIncome && debt.type === 'to_receive') {
     const inCat = S.cats.in.find((c) => c.name === 'Outros') || S.cats.in[0];
     const incomeTx: Transaction = {
@@ -1451,12 +1457,104 @@ export const amortizeDebt = (
       tags: ['divida'],
       status: 'confirmed'
     };
-    if (accountId) {
-      incomeTx.accountId = accountId;
+    if (selectedAccountId) {
+      incomeTx.accountId = selectedAccountId;
     }
     S.tx.push(incomeTx);
+  } else if (registerAsIncome && debt.type === 'to_pay') {
+    const outCat = S.cats.out.find((c) => c.name === 'Outros') || S.cats.out[0];
+    const expenseTx: Transaction = {
+      id: crypto.randomUUID(),
+      type: 'out',
+      v: amount,
+      n: `Pagamento dívida: ${debt.personName}`,
+      c: (outCat ? outCat.name : 'Outros') as Category,
+      d: today,
+      pay: 'pix',
+      tags: ['divida'],
+      status: 'confirmed'
+    };
+    if (selectedAccountId) {
+      expenseTx.accountId = selectedAccountId;
+    }
+    S.tx.push(expenseTx);
   }
   save();
+};
+
+/**
+ * Liquida todas as dívidas ativas de uma pessoa específica, com opção de registrar movimentação no extrato.
+ */
+export const settleAllDebtsOfPerson = (
+  personName: string,
+  debtType: DebtType,
+  registerInLedger = false,
+  accountId?: string
+): { totalSettledCents: number; settledCount: number } => {
+  const target = personName.trim().toLowerCase();
+  const today = toIsoDate(now);
+  let totalSettledCents = 0;
+  let settledCount = 0;
+
+  for (const d of S.debts) {
+    if (d.status !== 'active' || d.type !== debtType || d.personName.trim().toLowerCase() !== target) continue;
+    const rem = debtRemaining(d);
+    if (rem > 0) {
+      d.payments.push({
+        id: crypto.randomUUID(),
+        amountCents: rem,
+        date: today,
+        notes: 'Liquidação total'
+      });
+      d.paidAmountCents += rem;
+      d.status = 'settled';
+      totalSettledCents += rem;
+      settledCount++;
+    }
+  }
+
+  if (registerInLedger && totalSettledCents > 0) {
+    const selectedAccountId =
+      accountId ||
+      (typeof document !== 'undefined'
+        ? document.querySelector<HTMLSelectElement>('#st-account')?.value
+        : undefined);
+
+    if (debtType === 'to_receive') {
+      const inCat = S.cats.in.find((c) => c.name === 'Outros') || S.cats.in[0];
+      const incomeTx: Transaction = {
+        id: crypto.randomUUID(),
+        type: 'in',
+        v: totalSettledCents,
+        n: `Recebimento total: ${personName.trim()}`,
+        c: (inCat ? inCat.name : 'Outros') as Category,
+        d: today,
+        pay: 'pix',
+        tags: ['divida'],
+        status: 'confirmed'
+      };
+      if (selectedAccountId) incomeTx.accountId = selectedAccountId;
+      S.tx.push(incomeTx);
+    } else {
+      const outCat = S.cats.out.find((c) => c.name === 'Outros') || S.cats.out[0];
+      const expenseTx: Transaction = {
+        id: crypto.randomUUID(),
+        type: 'out',
+        v: totalSettledCents,
+        n: `Pagamento total dívida: ${personName.trim()}`,
+        c: (outCat ? outCat.name : 'Outros') as Category,
+        d: today,
+        pay: 'pix',
+        tags: ['divida'],
+        status: 'confirmed'
+      };
+      if (selectedAccountId) expenseTx.accountId = selectedAccountId;
+      S.tx.push(expenseTx);
+    }
+  }
+
+  save();
+  return { totalSettledCents, settledCount };
 };
 
 /**
