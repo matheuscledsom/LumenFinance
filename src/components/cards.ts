@@ -27,7 +27,8 @@ import {
 import { brl, brlPlain, esc, lum } from '../utils/currency';
 import { cur, now, prevM, toIsoDate, ym } from '../utils/date';
 import { centsToInput, parseAmountInput } from '../utils/qol';
-import { openCardDialog } from './dialogs';
+import { openCardDialog, openUnifiedCardAccountDialog } from './dialogs';
+export { openUnifiedCardAccountDialog };
 
 export let selectedCardsInvoiceMonth: string = cur;
 
@@ -113,43 +114,10 @@ export function openAdjustBalanceDialog(accountId: string): void {
 }
 
 /**
- * Abre o modal de cadastro ou edição de conta bancária.
+ * Abre o modal de cadastro ou edição de conta bancária (redireciona para o modal unificado).
  */
 export function openAccountDialog(accountId?: string): void {
-  const account = accountId ? getAccountById(accountId) : undefined;
-  const f = $<HTMLFormElement>('#f2');
-  if (!f) return;
-
-  const defaultIcons = ['🏦', '🟣', '🟠', '💵', '🟢', '🔵', '🏛️', '💰'];
-  const iconOptions = defaultIcons
-    .map(
-      (ic) =>
-        `<button type="button" class="btn btn-icon-choice${account?.icon === ic ? ' active' : ''}" data-choose-icon="${ic}">${ic}</button>`
-    )
-    .join('');
-
-  f.dataset.kind = 'account';
-  if (accountId) f.dataset.entityId = accountId;
-  else delete f.dataset.entityId;
-
-  const initBalanceField = !account
-    ? `<label style="margin-top:10px">Saldo Inicial (R$)<input id="acc-init" inputmode="decimal" placeholder="0,00" value="0,00" autocomplete="off"></label>`
-    : '';
-
-  f.innerHTML = `<h2 id="dt2" style="margin:0 0 4px;font-size:1.2rem">${account ? 'Editar Conta' : 'Nova Conta Bancária'}</h2>
-<label>Nome da Conta<input id="acc-name" maxlength="30" placeholder="Ex.: Nubank, Itaú, Carteira" value="${esc(account?.name || '')}" required autocomplete="off"></label>
-<div style="margin-top:10px"><span class="mut" style="font-size:.8rem;display:block;margin-bottom:6px">Ícone</span>
-  <div style="display:flex;gap:6px;flex-wrap:wrap">${iconOptions}</div>
-  <input type="hidden" id="acc-icon" value="${esc(account?.icon || '🏦')}">
-</div>
-<label style="margin-top:10px">Cor de Identificação<input id="acc-color" type="color" value="${esc(account?.color || '#8b5cf6')}" style="height:42px;padding:2px"></label>
-${initBalanceField}
-<label class="chk-row" style="margin-top:10px"><input id="acc-default" type="checkbox"${account?.isDefault ? ' checked' : ''}><span>Conta Padrão</span></label>
-<div id="f2e" class="neg" role="alert" style="margin-top:8px;font-size:.85rem"></div>
-<div style="display:flex;gap:10px;margin-top:14px"><button type="button" class="btn" data-close-dlg2 style="flex:1">Cancelar</button><button class="btn p" style="flex:1">Salvar</button></div>`;
-
-  $<HTMLDialogElement>('#dlg2')?.showModal();
-  setTimeout(() => f.querySelector<HTMLInputElement>('#acc-name')?.focus(), 50);
+  openUnifiedCardAccountDialog(accountId);
 }
 
 /**
@@ -266,219 +234,216 @@ export function openPayInvoiceDialog(cardId: string, monthYear: string): void {
 }
 
 /**
- * Renderiza o Hub de Cartões & Contas.
+ * Renderiza o Hub de Cartões & Contas Unificado.
  */
 export function cards(): string {
   const accountBalances = getAccountBalances();
-
-  // Seção 1: Meus Bancos & Liquidez
-  const accountCardsHtml = accountBalances
-    .map(
-      ({
-        account,
-        totalBankBalanceCents,
-        personalBalanceCents,
-        thirdPartyCustodyCents,
-        isNearZero
-      }) => {
-        const totalFmt = S.hide ? '••••' : brl(totalBankBalanceCents);
-        const personalFmt = S.hide ? '••••' : brl(personalBalanceCents);
-        const custodyFmt = S.hide ? '••••' : brl(thirdPartyCustodyCents);
-
-        return `<div class="bank-account-card card${isNearZero ? ' warning-border' : ''}">
-      <div class="bank-card-header">
-        <div class="bank-card-title">
-          <span class="bank-card-icon" style="background:${esc(account.color)}20;color:${esc(account.color)}">${esc(account.icon)}</span>
-          <div>
-            <b>${esc(account.name)}</b>
-            ${account.isDefault ? '<span class="pill" style="font-size:.68rem;margin-left:4px">Padrão</span>' : ''}
-          </div>
-        </div>
-        <div class="bank-card-menu">
-          <button type="button" class="btn btn-sm" data-edit-account="${esc(account.id)}" title="Editar conta">✏️</button>
-          ${
-            S.accounts.length > 1
-              ? `<button type="button" class="btn btn-sm" data-del-account="${esc(account.id)}" title="Excluir conta">🗑</button>`
-              : ''
-          }
-        </div>
-      </div>
-
-      <div class="bank-balances-stack">
-        <div class="bank-balance-row main">
-          <span class="mut">Saldo Livre (Pessoal)</span>
-          <b class="num ${personalBalanceCents >= 0 ? '' : 'neg'}">${personalFmt}</b>
-        </div>
-        <div class="bank-balance-row sub">
-          <span class="mut">Saldo Total no App do Banco</span>
-          <span class="num">${totalFmt}</span>
-        </div>
-        ${
-          thirdPartyCustodyCents > 0
-            ? `<div class="bank-balance-row custody">
-                <span class="mut">🤝 Guardado de Terceiros</span>
-                <b class="num pos">${custodyFmt}</b>
-              </div>`
-            : ''
-        }
-      </div>
-
-      <div class="bank-card-actions">
-        <button type="button" class="btn btn-sm" data-adjust-account="${esc(account.id)}">⚖️ Ajustar Saldo Real</button>
-      </div>
-    </div>`;
-      }
-    )
-    .join('');
-
-  // Seção 2: Meus Cartões de Crédito
   const monthLabel = formatInvoiceLabel(selectedCardsInvoiceMonth);
 
-  const cardCardsHtml = S.cards.length
-    ? S.cards
-        .map((card) => {
-          const limitStatus = getCardLimitStatus(card.id);
-          const detailed = getCardDetailedInvoice(card.id, selectedCardsInvoiceMonth);
+  const unifiedCardsHtml = accountBalances.map(
+    ({
+      account,
+      totalBankBalanceCents,
+      personalBalanceCents,
+      thirdPartyCustodyCents,
+      isNearZero
+    }) => {
+      const card = account.linkedCardId
+        ? S.cards.find((c) => c.id === account.linkedCardId)
+        : S.cards.find(
+            (c) =>
+              c.linkedAccountId === account.id ||
+              c.name.toLowerCase() === account.name.toLowerCase()
+          );
 
-          const limitFmt = S.hide ? '••••' : brl(limitStatus.limitCents);
-          const committedFmt = S.hide ? '••••' : brl(limitStatus.committedCents);
-          const availableFmt = S.hide ? '••••' : brl(limitStatus.availableCents);
+      const hasCredit = Boolean(account.hasCredit || (card && account.cardMode !== 'debit'));
+      const isCreditOnly = account.cardMode === 'credit';
 
-          const invoiceTotalFmt = S.hide ? '••••' : brl(detailed.totalCents);
-          const personalFmt = S.hide ? '••••' : brl(detailed.personalCents);
-          const thirdPartyFmt = S.hide ? '••••' : brl(detailed.thirdPartyCents);
-          const remainingFmt = S.hide ? '••••' : brl(detailed.remainingCents);
+      const totalFmt = S.hide ? '••••' : brl(totalBankBalanceCents);
+      const personalFmt = S.hide ? '••••' : brl(personalBalanceCents);
+      const custodyFmt = S.hide ? '••••' : brl(thirdPartyCustodyCents);
 
-          const usagePct = Math.min(100, Math.round(limitStatus.usageRatio * 100));
+      const modeBadge = isCreditOnly
+        ? '<span class="pill" style="font-size:.68rem">Só Crédito</span>'
+        : hasCredit
+        ? '<span class="pill" style="font-size:.68rem">Múltiplo (Débito + Crédito)</span>'
+        : '<span class="pill" style="font-size:.68rem">Conta / Débito</span>';
 
-          const statusBadge =
-            detailed.status === 'paid'
-              ? '<span class="pill pos">✅ Fatura Quitada</span>'
-              : detailed.status === 'closed'
-              ? '<span class="pill neg">⚠️ Fatura Fechada</span>'
-              : detailed.status === 'partial'
-              ? '<span class="pill warning">Parcialmente Paga</span>'
-              : '<span class="pill">⚡ Fatura Aberta</span>';
+      const pixBadge = account.pixKey
+        ? `<button type="button" class="pill" data-copy-pix="${esc(account.pixKey)}" title="Clique para copiar a Chave Pix" style="cursor:pointer;font-size:.72rem">🔑 Pix: <b>${esc(account.pixKey)}</b> 📋</button>`
+        : '';
 
-          const itemsHtml = detailed.items.length
-            ? `<div class="invoice-items-list">
-                ${detailed.items
-                  .map((t) => {
-                    const tVal = S.hide ? '••••' : brl(t.v);
-                    const isSplit = Boolean(t.splitInfo);
-                    const isThird = Boolean(t.thirdParty?.isThirdParty);
-                    const badge = isSplit
-                      ? `<span class="pill" style="font-size:.66rem">🤝 Divisão (${t.splitInfo?.participants.length})</span>`
-                      : isThird
-                      ? `<span class="pill" style="font-size:.66rem">👤 ${esc(t.thirdParty?.personName || 'Terceiro')}</span>`
-                      : '';
-                    return `<div class="invoice-item">
-                      <div class="invoice-item-info">
-                        <b>${esc(t.n)}</b>
-                        <div class="mut" style="font-size:.74rem">${esc(t.d.split('-').reverse().join('/'))} ${badge}</div>
+      let creditSectionHtml = '';
+      if (hasCredit && card) {
+        const limitStatus = getCardLimitStatus(card.id);
+        const detailed = getCardDetailedInvoice(card.id, selectedCardsInvoiceMonth);
+
+        const limitFmt = S.hide ? '••••' : brl(limitStatus.limitCents);
+        const committedFmt = S.hide ? '••••' : brl(limitStatus.committedCents);
+        const availableFmt = S.hide ? '••••' : brl(limitStatus.availableCents);
+        const invoiceTotalFmt = S.hide ? '••••' : brl(detailed.totalCents);
+        const personalInvFmt = S.hide ? '••••' : brl(detailed.personalCents);
+        const thirdPartyInvFmt = S.hide ? '••••' : brl(detailed.thirdPartyCents);
+        const remainingInvFmt = S.hide ? '••••' : brl(detailed.remainingCents);
+
+        const usagePct = Math.min(100, Math.round(limitStatus.usageRatio * 100));
+
+        const statusBadge =
+          detailed.status === 'paid'
+            ? '<span class="pill pos">✅ Paga</span>'
+            : detailed.status === 'closed'
+            ? '<span class="pill neg">⚠️ Fechada</span>'
+            : detailed.status === 'partial'
+            ? '<span class="pill warning">Parcial</span>'
+            : '<span class="pill">⚡ Aberta</span>';
+
+        const itemsHtml = detailed.items.length
+          ? `<div class="invoice-items-list">
+              ${detailed.items
+                .map((t) => {
+                  const tVal = S.hide ? '••••' : brl(t.v);
+                  return `<div class="invoice-item">
+                    <div class="invoice-item-info">
+                      <b>${esc(t.n)}</b>
+                      <div class="mut" style="font-size:.74rem">${esc(t.d.split('-').reverse().join('/'))}</div>
+                    </div>
+                    <b class="num">${tVal}</b>
+                  </div>`;
+                })
+                .join('')}
+            </div>`
+          : '<div class="mut" style="font-size:.8rem;padding:6px 0">Nenhum gasto nesta fatura.</div>';
+
+        creditSectionHtml = `
+          <div class="bank-credit-section" style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--bd)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:.82rem;font-weight:600">💳 Fatura & Limite de Crédito</span>
+              <span class="mut" style="font-size:.74rem">Fecha dia ${card.closingDay} · Vence dia ${card.dueDay}</span>
+            </div>
+
+            <div class="card-limit-progress" style="margin-bottom:10px">
+              <div class="card-limit-labels">
+                <span class="mut">Limite: <b>${limitFmt}</b></span>
+                <span class="${limitStatus.isWarning ? 'neg' : 'mut'}">Usado: <b>${committedFmt} (${usagePct}%)</b></span>
+                <span class="pos">Disponível: <b>${availableFmt}</b></span>
+              </div>
+              <div class="card-limit-bar">
+                <div class="card-limit-bar-fill${limitStatus.isWarning ? ' warning' : ''}" style="width:${usagePct}%;background:${esc(limitStatus.isWarning ? 'var(--neg)' : card.color)}"></div>
+              </div>
+            </div>
+
+            <div class="invoice-nav-container">
+              <div class="invoice-nav-bar">
+                <button type="button" class="btn btn-sm" data-step-card-month="-1" title="Mês anterior">◀</button>
+                <span class="invoice-month-label"><b>${esc(monthLabel)}</b> ${statusBadge}</span>
+                <button type="button" class="btn btn-sm" data-step-card-month="1" title="Próximo mês">▶</button>
+              </div>
+
+              <div class="invoice-summary-box">
+                <div class="invoice-breakdown-row">
+                  <span class="mut">Total da Fatura:</span>
+                  <b class="num">${invoiceTotalFmt}</b>
+                </div>
+                ${
+                  detailed.thirdPartyCents > 0
+                    ? `<div class="invoice-breakdown-row sub">
+                        <span class="mut">Pessoal:</span>
+                        <span>${personalInvFmt}</span>
                       </div>
-                      <b class="num">${tVal}</b>
-                    </div>`;
-                  })
-                  .join('')}
-              </div>`
-            : '<div class="mut" style="font-size:.8rem;padding:8px 0">Nenhum gasto nesta fatura.</div>';
+                      <div class="invoice-breakdown-row sub">
+                        <span class="mut">Terceiros:</span>
+                        <span>${thirdPartyInvFmt}</span>
+                      </div>`
+                    : ''
+                }
+                ${
+                  detailed.status !== 'paid' && detailed.remainingCents > 0
+                    ? `<div class="invoice-action-bar">
+                        <span class="mut" style="font-size:.8rem">A pagar: <b class="num neg">${remainingInvFmt}</b></span>
+                        <button type="button" class="btn p btn-sm" data-pay-invoice="${esc(card.id)}" data-invoice-ym="${esc(selectedCardsInvoiceMonth)}">⚡ Pagar Fatura</button>
+                      </div>`
+                    : ''
+                }
+              </div>
 
-          return `<div class="credit-card-box card">
-        <div class="credit-card-header">
-          <div class="credit-card-info">
-            <span class="card-color-dot" style="background:${esc(card.color)}"></span>
+              <details class="invoice-items-details">
+                <summary class="mut" style="font-size:.78rem;cursor:pointer;padding:4px 0">Ver lançamentos da fatura (${detailed.items.length})</summary>
+                ${itemsHtml}
+              </details>
+            </div>
+          </div>
+        `;
+      }
+
+      return `<div class="bank-account-card card${isNearZero ? ' warning-border' : ''}">
+        <div class="bank-card-header">
+          <div class="bank-card-title">
+            <span class="bank-card-icon" style="background:${esc(account.color)}20;color:${esc(account.color)}">${esc(account.icon)}</span>
             <div>
-              <b>${esc(card.name)}</b>
-              ${card.lastDigits ? `<span class="mut" style="font-size:.78rem">•••• ${esc(card.lastDigits)}</span>` : ''}
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                <b>${esc(account.name)}</b>
+                ${account.lastDigits ? `<span class="mut" style="font-size:.76rem">•••• ${esc(account.lastDigits)}</span>` : ''}
+                ${account.isDefault ? '<span class="pill" style="font-size:.68rem">Principal</span>' : ''}
+                ${modeBadge}
+              </div>
+              ${pixBadge ? `<div style="margin-top:3px">${pixBadge}</div>` : ''}
             </div>
           </div>
-          <div class="credit-card-actions">
-            <button type="button" class="btn btn-sm" data-edit-card="${esc(card.id)}" title="Editar cartão">✏️</button>
-            <button type="button" class="btn btn-sm" data-del-card="${esc(card.id)}" title="Excluir cartão">🗑</button>
-          </div>
-        </div>
-
-        <div class="card-limit-progress">
-          <div class="card-limit-labels">
-            <span class="mut">Limite: <b>${limitFmt}</b></span>
-            <span class="${limitStatus.isWarning ? 'neg' : 'mut'}">Usado: <b>${committedFmt} (${usagePct}%)</b></span>
-            <span class="pos">Disponível: <b>${availableFmt}</b></span>
-          </div>
-          <div class="card-limit-bar">
-            <div class="card-limit-bar-fill${limitStatus.isWarning ? ' warning' : ''}" style="width:${usagePct}%;background:${esc(limitStatus.isWarning ? 'var(--neg)' : card.color)}"></div>
-          </div>
-          ${
-            limitStatus.isWarning
-              ? '<div class="card-limit-warning neg">⚠️ Atenção: Mais de 85% do limite comprometido.</div>'
-              : ''
-          }
-        </div>
-
-        <div class="invoice-nav-container">
-          <div class="invoice-nav-bar">
-            <button type="button" class="btn btn-sm" data-step-card-month="-1" title="Mês anterior">◀</button>
-            <span class="invoice-month-label"><b>${esc(monthLabel)}</b> ${statusBadge}</span>
-            <button type="button" class="btn btn-sm" data-step-card-month="1" title="Próximo mês">▶</button>
-          </div>
-
-          <div class="invoice-summary-box">
-            <div class="invoice-breakdown-row">
-              <span class="mut">Total da Fatura:</span>
-              <b class="num">${invoiceTotalFmt}</b>
-            </div>
-            <div class="invoice-breakdown-row sub">
-              <span class="mut">Sua Parte Pessoal:</span>
-              <span>${personalFmt}</span>
-            </div>
-            <div class="invoice-breakdown-row sub">
-              <span class="mut">Parte de Terceiros:</span>
-              <span>${thirdPartyFmt}</span>
-            </div>
+          <div class="bank-card-menu">
+            <button type="button" class="btn btn-sm" data-edit-unified="${esc(account.id)}" title="Editar Banco/Cartão">✏️</button>
             ${
-              detailed.status !== 'paid' && detailed.remainingCents > 0
-                ? `<div class="invoice-action-bar">
-                    <span class="mut" style="font-size:.8rem">A pagar: <b class="num neg">${remainingFmt}</b></span>
-                    <button type="button" class="btn p btn-sm" data-pay-invoice="${esc(card.id)}" data-invoice-ym="${esc(selectedCardsInvoiceMonth)}">⚡ Pagar Fatura</button>
-                  </div>`
+              S.accounts.length > 1
+                ? `<button type="button" class="btn btn-sm" data-del-account="${esc(account.id)}" title="Excluir conta">🗑</button>`
                 : ''
             }
           </div>
-
-          <details class="invoice-items-details">
-            <summary class="mut" style="font-size:.8rem;cursor:pointer;padding:6px 0">Ver compras da fatura (${detailed.items.length})</summary>
-            ${itemsHtml}
-          </details>
         </div>
+
+        ${
+          !isCreditOnly
+            ? `<div class="bank-balances-stack">
+          <div class="bank-balance-row main">
+            <span class="mut">Saldo Livre (Pessoal)</span>
+            <b class="num ${personalBalanceCents >= 0 ? '' : 'neg'}">${personalFmt}</b>
+          </div>
+          <div class="bank-balance-row sub">
+            <span class="mut">Saldo Total no App do Banco</span>
+            <span class="num">${totalFmt}</span>
+          </div>
+          ${
+            thirdPartyCustodyCents > 0
+              ? `<div class="bank-balance-row custody">
+                  <span class="mut">🤝 Guardado de Terceiros</span>
+                  <b class="num pos">${custodyFmt}</b>
+                </div>`
+              : ''
+          }
+        </div>
+
+        <div class="bank-card-actions">
+          <button type="button" class="btn btn-sm" data-adjust-account="${esc(account.id)}">⚖️ Ajustar Saldo Real</button>
+        </div>`
+            : ''
+        }
+
+        ${creditSectionHtml}
       </div>`;
-        })
-        .join('')
-    : `<div class="empty">Nenhum cartão cadastrado.<br><button type="button" class="btn p" data-new-card style="margin-top:8px">+ Cadastrar Novo Cartão</button></div>`;
+    }
+  );
 
   return `<header class="wide">
     <h1>
       <b>Cartões & Contas</b>
-      <div class="mut" style="font-size:.8rem;font-weight:500">Liquidez, faturas conscientes e limites</div>
+      <div class="mut" style="font-size:.8rem;font-weight:500">Bancos, contas e faturas integrados com transparência</div>
     </h1>
     <div style="display:flex;gap:8px">
       <button type="button" class="btn" data-transfer-modal>🔄 Transferir</button>
-      <button type="button" class="btn p" data-new-card>+ Novo Cartão</button>
+      <button type="button" class="btn p" data-new-unified>+ Novo Cartão / Conta</button>
     </div>
   </header>
 
   <section class="wide" style="margin-top:14px">
-    <div class="ch">
-      <span>Meus Bancos & Liquidez</span>
-      <button type="button" class="link-btn" data-new-account>+ Nova Conta</button>
-    </div>
-    <div class="bank-accounts-grid">${accountCardsHtml}</div>
-  </section>
-
-  <section class="wide" style="margin-top:20px">
-    <div class="ch">
-      <span>Meus Cartões de Crédito</span>
-    </div>
-    <div class="credit-cards-grid">${cardCardsHtml}</div>
+    <div class="bank-accounts-grid">${unifiedCardsHtml.join('')}</div>
   </section>`;
 }
 

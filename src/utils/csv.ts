@@ -3,7 +3,7 @@
    ========================================================================== */
 
 import { normalizePay, normalizeStatus, normalizeTags } from '../state';
-import type { Category, Transaction } from '../types/finance';
+import type { Category, Transaction, UserSuggestion } from '../types/finance';
 
 /**
  * Converte uma lista de movimentações para texto CSV.
@@ -25,6 +25,18 @@ export const toCSV = (txList: Transaction[] = []): string => {
       safeTags,
       t.status || 'confirmed'
     ].join(',');
+  });
+  return [header, ...rows].join('\n');
+};
+
+/**
+ * Converte uma lista de sugestões do usuário para texto CSV.
+ */
+export const suggestionsToCSV = (suggestions: UserSuggestion[] = []): string => {
+  const header = 'id,categoria,mensagem,data';
+  const rows = suggestions.map((s) => {
+    const safeMsg = `"${String(s.message || '').replace(/"/g, '""')}"`;
+    return [s.id, s.category, safeMsg, s.createdAt].join(',');
   });
   return [header, ...rows].join('\n');
 };

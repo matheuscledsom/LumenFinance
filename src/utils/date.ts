@@ -2,6 +2,8 @@
    date.ts — Manipulação, Matrizes de Calendário e Formatação de Datas ISO
    ========================================================================== */
 
+import type { SalaryRule } from '../types/finance';
+
 export const now: Date = new Date();
 export const cur: string = now.toISOString().slice(0, 7);
 
@@ -92,4 +94,50 @@ export const dfmt = (d: string): string => {
     : diff === 1
     ? 'Ontem'
     : t.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+};
+
+/**
+ * Retorna o enésimo dia útil (Seg-Sex, 1 = Seg..5 = Sex) de um determinado mês em formato YYYY-MM-DD.
+ */
+export const getNthBusinessDay = (year: number, month: number, n: number = 5): string => {
+  const daysInMonth = new Date(year, month, 0).getDate();
+  let count = 0;
+  for (let day = 1; day <= daysInMonth; day++) {
+    const d = new Date(year, month - 1, day, 12, 0, 0);
+    const dayOfWeek = d.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      count++;
+      if (count === n) {
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+    }
+  }
+  for (let day = daysInMonth; day >= 1; day--) {
+    const d = new Date(year, month - 1, day, 12, 0, 0);
+    const dayOfWeek = d.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+  return `${year}-${String(month).padStart(2, '0')}-01`;
+};
+
+/**
+ * Retorna a data em que o salário é recebido em um determinado mês com base na regra configurada.
+ */
+export const getSalaryDateForMonth = (
+  year: number,
+  month: number,
+  rule?: SalaryRule | null
+): string | null => {
+  if (!rule || rule.type === 'none') return null;
+  if (rule.type === 'fifth_business_day') {
+    return getNthBusinessDay(year, month, 5);
+  }
+  if (rule.type === 'fixed_day') {
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const clampedDay = Math.min(Math.max(1, rule.day || 5), daysInMonth);
+    return `${year}-${String(month).padStart(2, '0')}-${String(clampedDay).padStart(2, '0')}`;
+  }
+  return null;
 };

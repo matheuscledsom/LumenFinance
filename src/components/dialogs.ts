@@ -4,6 +4,7 @@
 
 import {
   S,
+  save,
   addAccount,
   addCard,
   addDebt,
@@ -13,10 +14,13 @@ import {
   debtRemaining,
   transferBetweenAccounts,
   updateAccount,
-  updateCard
+  updateCard,
+  upsertBankWithCard
 } from '../state';
 import {
   PAYMENT_METHODS,
+  type BankAccount,
+  type CreditCard,
   type DebtType,
   type PaymentMethod
 } from '../types/finance';
@@ -32,7 +36,12 @@ export type Dialog2Kind =
   | 'transfer'
   | 'adjust_balance'
   | 'account'
+  | 'unified_card_account'
+  | 'profile_media_adjust'
+  | 'whatsapp_config'
+  | 'send_whatsapp'
   | 'pay_invoice'
+  | 'customize_home'
   | 'settle-all';
 
 export interface DialogResult {
@@ -138,21 +147,92 @@ ${incomeOpt}`,
 }
 
 /**
- * Abre o formulário de cadastro/edição de cartão de crédito.
+ * Abre o modal unificado de cadastro ou edição de Conta & Cartão.
+ */
+export function openUnifiedCardAccountDialog(accountOrCardId?: string): void {
+  let account: BankAccount | undefined;
+  let card: CreditCard | undefined;
+
+  if (accountOrCardId) {
+    account = S.accounts.find((a) => a.id === accountOrCardId);
+    if (!account) {
+      card = S.cards.find((c) => c.id === accountOrCardId);
+      if (card && card.linkedAccountId) {
+        account = S.accounts.find((a) => a.id === card?.linkedAccountId);
+      }
+    } else if (account.linkedCardId) {
+      card = S.cards.find((c) => c.id === account?.linkedCardId);
+    }
+  }
+
+  const defaultIcons = ['🏦', '🟣', '🟠', '💵', '🟢', '🔵', '🏛️', '💰'];
+  const curIcon = account?.icon || '🏦';
+  const iconOptions = defaultIcons
+    .map(
+      (ic) =>
+        `<button type="button" class="btn btn-icon-choice${curIcon === ic ? ' active' : ''}" data-choose-icon="${ic}">${ic}</button>`
+    )
+    .join('');
+
+  const cardMode = account?.cardMode || (card ? 'credit' : 'both');
+  const hasCredit = cardMode === 'both' || cardMode === 'credit';
+  const color = account?.color || card?.color || '#8b5cf6';
+  const lastDigits = account?.lastDigits || card?.lastDigits || '';
+  const initialBalance = account ? centsToInput(account.initialBalanceCents) : '0,00';
+  const pixKey = account?.pixKey || '';
+  const isDefault = account?.isDefault || false;
+  const creditLimit = card?.limitCents
+    ? centsToInput(card.limitCents)
+    : account?.creditLimitCents
+    ? centsToInput(account.creditLimitCents)
+    : '1000,00';
+  const closingDay = card?.closingDay || account?.closingDay || 10;
+  const dueDay = card?.dueDay || account?.dueDay || 17;
+
+  open(
+    'unified_card_account',
+    `<h2 id="dt2" style="margin:0 0 4px;font-size:1.2rem">${account || card ? 'Editar Banco / Cartão' : 'Novo Banco / Cartão'}</h2>
+<label>Nome do Banco / Cartão<input id="uca-name" maxlength="30" placeholder="Ex.: Nubank, Inter, Itaú" required value="${esc(account?.name || card?.name || '')}" autocomplete="off"></label>
+<div style="margin-top:10px">
+  <span class="mut" style="font-size:.8rem;display:block;margin-bottom:6px">Ícone</span>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">${iconOptions}</div>
+  <input type="hidden" id="uca-icon" value="${esc(curIcon)}">
+</div>
+<label style="margin-top:10px">Cor de Identificação<input id="uca-color" type="color" value="${esc(color)}" style="height:42px;padding:2px"></label>
+<label style="margin-top:10px">Últimos 4 dígitos (opcional)<input id="uca-digits" inputmode="numeric" maxlength="4" placeholder="1234" value="${esc(lastDigits)}" autocomplete="off"></label>
+
+<label style="margin-top:10px">Modalidade
+  <select id="uca-mode" style="padding:10px 12px;margin-top:4px">
+    <option value="both" ${cardMode === 'both' ? 'selected' : ''}>Débito + Crédito (Múltiplo)</option>
+    <option value="debit" ${cardMode === 'debit' ? 'selected' : ''}>Só Débito / Conta</option>
+    <option value="credit" ${cardMode === 'credit' ? 'selected' : ''}>Só Crédito</option>
+  </select>
+</label>
+
+<div id="uca-debit-fields" style="display:${cardMode === 'credit' ? 'none' : 'block'};margin-top:10px">
+  <label>Saldo Inicial em Conta / Débito (R$)<input id="uca-balance" inputmode="decimal" placeholder="0,00" value="${esc(initialBalance)}" autocomplete="off"></label>
+  <label style="margin-top:10px">Chave Pix Vinculada (opcional)<input id="uca-pix" placeholder="CPF, e-mail, telefone ou chave aleatória" value="${esc(pixKey)}" autocomplete="off"></label>
+</div>
+
+<div id="uca-credit-fields" style="display:${hasCredit ? 'block' : 'none'};margin-top:10px;padding:10px;background:var(--card);border:1px solid var(--bd);border-radius:var(--r)">
+  <b style="font-size:.88rem;display:block;margin-bottom:8px">💳 Função Cartão de Crédito</b>
+  <label>Limite Total de Crédito (R$)<input id="uca-limit" inputmode="decimal" placeholder="5000,00" value="${esc(creditLimit)}" autocomplete="off"></label>
+  <div class="form-split-row" style="margin-top:10px">
+    <label>Dia Fechamento Fatura<input id="uca-close" type="number" min="1" max="31" value="${closingDay}"><small class="mut" style="font-size:.7rem;display:block;margin-top:2px">Compras até 1 dia antes entram nesta fatura</small></label>
+    <label>Dia Vencimento Fatura<input id="uca-due" type="number" min="1" max="31" value="${dueDay}"></label>
+  </div>
+</div>
+
+<label class="chk-row" style="margin-top:12px"><input id="uca-default" type="checkbox"${isDefault ? ' checked' : ''}><span>Conta / Cartão Principal</span></label>`,
+    account?.id || card?.id
+  );
+}
+
+/**
+ * Abre o formulário de cadastro/edição de cartão de crédito (redireciona para o modal unificado).
  */
 export function openCardDialog(cardId?: string): void {
-  const card = cardId ? S.cards.find((c) => c.id === cardId) : undefined;
-  const color = card?.color || CARD_COLORS[S.cards.length % CARD_COLORS.length];
-  open(
-    'card',
-    `<h2 id="dt2" style="margin:0 0 4px;font-size:1.2rem">${card ? 'Editar cartão' : 'Novo cartão'}</h2>
-<label>Nome<input id="cd-name" maxlength="24" placeholder="Ex.: Nubank" required value="${esc(card?.name || '')}" autocomplete="off"></label>
-<label>Últimos 4 dígitos (opcional)<input id="cd-digits" inputmode="numeric" maxlength="4" placeholder="1234" value="${esc(card?.lastDigits || '')}" autocomplete="off"></label>
-<label>Cor<input id="cd-color" type="color" value="${esc(color)}" style="height:42px;padding:2px"></label>
-<label>Limite (R$)<input id="cd-limit" inputmode="decimal" placeholder="5000,00" value="${card ? esc(centsToInput(card.limitCents)) : ''}" autocomplete="off"></label>
-<div class="form-split-row"><label>Dia de fechamento<input id="cd-close" type="number" min="1" max="31" value="${card?.closingDay ?? 10}" required></label><label>Dia de vencimento<input id="cd-due" type="number" min="1" max="31" value="${card?.dueDay ?? 17}" required></label></div>`,
-    cardId
-  );
+  openUnifiedCardAccountDialog(cardId);
 }
 
 const val = (id: string): string => $<HTMLInputElement>(id)?.value ?? '';
@@ -233,6 +313,59 @@ export function submitDialog2(form: HTMLFormElement): DialogResult {
     return { ok: true, message: 'Saldo real ajustado com sucesso!' };
   }
 
+  if (kind === 'unified_card_account') {
+    const bankName = val('#uca-name').trim();
+    if (!bankName) return { ok: false, message: 'Informe o nome do banco ou cartão.' };
+    const icon = val('#uca-icon').trim() || '🏦';
+    const color = val('#uca-color').trim() || '#8b5cf6';
+    const lastDigits = val('#uca-digits').replace(/\D/g, '').slice(-4);
+    const cardMode = (val('#uca-mode') as 'debit' | 'credit' | 'both') || 'both';
+    const hasCredit = cardMode === 'both' || cardMode === 'credit';
+    const initialBalanceCents = cardMode !== 'credit' ? parseAmountInput(val('#uca-balance')) : 0;
+    const pixKey = val('#uca-pix').trim();
+    const isDefault = Boolean($<HTMLInputElement>('#uca-default')?.checked);
+
+    let cardLimitCents = 100000;
+    let closingDay = 10;
+    let dueDay = 17;
+
+    if (hasCredit) {
+      cardLimitCents = parseAmountInput(val('#uca-limit')) || 100000;
+      closingDay = Math.floor(Number(val('#uca-close'))) || 10;
+      dueDay = Math.floor(Number(val('#uca-due'))) || 17;
+      if (!(closingDay >= 1 && closingDay <= 31) || !(dueDay >= 1 && dueDay <= 31)) {
+        return { ok: false, message: 'Dias de fechamento e vencimento devem estar entre 1 e 31.' };
+      }
+    }
+
+    upsertBankWithCard({
+      accountId: entityId?.startsWith('acc-') ? entityId : undefined,
+      cardId: entityId?.startsWith('card-') ? entityId : undefined,
+      bankName,
+      icon,
+      color,
+      lastDigits,
+      cardMode,
+      hasCredit,
+      initialBalanceCents,
+      pixKey,
+      isDefault,
+      cardLimitCents,
+      closingDay,
+      dueDay
+    });
+
+    return { ok: true, message: 'Banco/Cartão salvo com sucesso! 🎉' };
+  }
+
+  if (kind === 'profile_media_adjust') {
+    const avatarZoom = Number(val('#pma-zoom')) || 100;
+    const avatarY = Number(val('#pma-avy')) || 0;
+    const bannerY = Number(val('#pma-bany')) || 0;
+    S.profileMediaAdjust = { avatarZoom, avatarY, bannerY };
+    return { ok: true, message: 'Enquadramento atualizado!' };
+  }
+
   if (kind === 'account') {
     const name = val('#acc-name').trim();
     if (!name) return { ok: false, message: 'Informe o nome da conta.' };
@@ -304,5 +437,53 @@ export function submitDialog2(form: HTMLFormElement): DialogResult {
     return { ok: true, message: entityId ? 'Cartão atualizado' : 'Cartão cadastrado' };
   }
 
+  if (kind === 'customize_home') {
+    return { ok: true, message: 'Personalização salva' };
+  }
+
+  if (kind === 'whatsapp_config') {
+    const tpl = val('#wac-template').trim();
+    const pix = val('#wac-default-pix').trim();
+    if (!tpl) {
+      return { ok: false, message: 'O modelo de texto não pode ficar vazio.' };
+    }
+    S.whatsappTemplate = tpl;
+    S.defaultPixKey = pix;
+    save();
+    return { ok: true, message: 'Modelo de cobrança salvo com sucesso!' };
+  }
+
   return { ok: false, message: 'Formulário inválido.' };
 }
+
+/**
+ * Abre o modal para personalizar e reordenar os blocos da tela inicial.
+ */
+export const openCustomizeHomeDialog = (): void => {
+  const widgetsHtml = S.homeWidgets
+    .map(
+      (w, i) => `
+      <div class="customize-widget-row" style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--bd);border-radius:var(--r);margin-bottom:8px;background:var(--card)">
+        <label class="chk-row" style="margin:0;cursor:pointer">
+          <input type="checkbox" data-toggle-widget="${esc(w.id)}"${w.visible ? ' checked' : ''}>
+          <span style="font-weight:600;font-size:.9rem">${esc(w.label)}</span>
+        </label>
+        <div style="display:flex;gap:6px">
+          <button type="button" class="btn btn-sm" data-move-widget="${esc(w.id)}" data-dir="up"${i === 0 ? ' disabled' : ''} title="Subir" style="padding:4px 8px">↑</button>
+          <button type="button" class="btn btn-sm" data-move-widget="${esc(w.id)}" data-dir="down"${i === S.homeWidgets.length - 1 ? ' disabled' : ''} title="Descer" style="padding:4px 8px">↓</button>
+        </div>
+      </div>
+    `
+    )
+    .join('');
+
+  open(
+    'customize_home',
+    `<h2 id="d2t" style="margin:0 0 4px;font-size:1.15rem">🎛 Personalizar Tela Inicial</h2>
+    <p class="mut" style="font-size:.82rem;margin:0 0 14px">Marque os blocos que deseja exibir na tela inicial e use as setas para ajustar a ordem.</p>
+    <div class="customize-widgets-list">${widgetsHtml}</div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button type="button" class="btn p" id="d2x" style="flex:1">Pronto</button>
+    </div>`
+  );
+};

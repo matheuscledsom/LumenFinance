@@ -59,6 +59,39 @@ html {
   color-scheme: light;
 }
 
+[data-theme="emerald"] {
+  --bg: #06110e;
+  --card: #0d1f1a;
+  --bd: #18372f;
+  --tx: #e6f7f2;
+  --mut: #7da599;
+  --pos: #10b981;
+  --neg: #f87171;
+  --sh: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="ocean"] {
+  --bg: #07111e;
+  --card: #0f1e32;
+  --bd: #1c3656;
+  --tx: #e3effc;
+  --mut: #82a3c7;
+  --pos: #38bdf8;
+  --neg: #fb7185;
+  --sh: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="sunset"] {
+  --bg: #140a14;
+  --card: #221224;
+  --bd: #3b1d3d;
+  --tx: #fce7f3;
+  --mut: #ba8ea8;
+  --pos: #f43f5e;
+  --neg: #fb923c;
+  --sh: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
 * {
   box-sizing: border-box;
 }

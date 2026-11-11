@@ -283,19 +283,3 @@ ${tagsBarHtml}
 </div></section>
 <div id="hist-dynamic-area" class="wide" style="display:grid;gap:14px">${renderHistoryResultsSection()}</div>`;
 }
-
-if (typeof document !== 'undefined') {
-  document.addEventListener('change', (e: Event) => {
-    const target = e.target as HTMLSelectElement | null;
-    if (!target) return;
-    if (target.id === 'hist-card') {
-      updateHistoryFilters({ cardId: target.value });
-      const dynArea = document.querySelector<HTMLElement>('#hist-dynamic-area');
-      if (dynArea) dynArea.innerHTML = renderHistoryResultsSection();
-    } else if (target.id === 'hist-account') {
-      updateHistoryFilters({ accountId: target.value });
-      const dynArea = document.querySelector<HTMLElement>('#hist-dynamic-area');
-      if (dynArea) dynArea.innerHTML = renderHistoryResultsSection();
-    }
-  });
-}

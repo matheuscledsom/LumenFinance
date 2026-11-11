@@ -5,6 +5,8 @@
 import {
   DEFAULT_CATEGORIES,
   DEFAULT_ACCOUNTS,
+  DEFAULT_TAGS,
+  DEFAULT_HOME_WIDGETS,
   cloneDefaultCategories,
   isValidPaymentMethod,
   INVOICE_WARNING_LIMIT_RATIO,
@@ -23,18 +25,24 @@ import {
   type Category,
   type CategoryBudget,
   type CategoryItem,
+  type CoupleConfig,
   type CreditCard,
+  type DayCardEvent,
   type DaySummary,
   type DebtPayment,
   type DebtRecord,
   type DebtType,
   type FilteredTransactionsResult,
+  type HomeWidgetConfig,
+  type HomeWidgetId,
   type InstallmentInfo,
   type MonthSummary,
   type PaymentMethod,
   type QuickShortcut,
   type RecurringInfo,
+  type SalaryRule,
   type SplitParticipant,
+  type SubscriptionMeta,
   type Theme,
   type ThirdPartyCustodyInflow,
   type ThirdPartyInfo,
@@ -43,6 +51,7 @@ import {
   type TransactionStatus,
   type TransactionType,
   type UpcomingBill,
+  type UserSuggestion,
   type ViewName
 } from './types/finance';
 import {
@@ -50,11 +59,13 @@ import {
   cur,
   dateInMonthClamped,
   getMonthCalendarMatrix,
+  getSalaryDateForMonth,
   now,
   prevM,
   toIsoDate,
   ym
 } from './utils/date';
+import { getCardCalendarEventsForMonth } from './utils/credit-card';
 import { calculateRoundUp } from './utils/qol';
 
 export const K = 'lumen.v1';
@@ -74,7 +85,10 @@ export const THEMES: [Theme, string][] = [
   ['oled', 'OLED'],
   ['white', 'Branco'],
   ['grey', 'Cinza escuro'],
-  ['xp', 'Windows XP']
+  ['xp', 'Windows XP'],
+  ['emerald', 'Esmeralda'],
+  ['ocean', 'Oceano'],
+  ['sunset', 'Pôr do Sol']
 ];
 
 export const CAT: Record<TransactionType, Category[]> = {
@@ -85,6 +99,9 @@ export const CAT: Record<TransactionType, Category[]> = {
     return S.cats.in.map((c) => c.name);
   }
 };
+
+export const DEFAULT_WHATSAPP_TEMPLATE =
+  'Olá, {nome}! Tudo bem? Passando para lembrar de {descricao} no valor de {valor}. Minha chave Pix: {pix}. Qualquer dúvida me avise, abraço!';
 
 /**
  * Normaliza e valida uma forma de pagamento, adotando 'money' como fallback seguro.
@@ -197,6 +214,12 @@ const normalizeCategoryList = (rawList: unknown, fallback: CategoryItem[]): Cate
       });
     }
   }
+  // Mescla novas categorias padrão que não existam na lista sem apagar categorias customizadas
+  for (const def of fallback) {
+    if (!normalized.some((c) => c.name.toLowerCase() === def.name.toLowerCase())) {
+      normalized.push({ ...def });
+    }
+  }
   return normalized.length > 0 ? normalized : fallback.map((c) => ({ ...c }));
 };
 
@@ -275,6 +298,7 @@ export const normalizeCards = (raw: unknown): CreditCard[] => {
     if (digits) card.lastDigits = digits;
     const linkedAccountId = asString(r.linkedAccountId);
     if (linkedAccountId) card.linkedAccountId = linkedAccountId;
+    if (r.cardType === 'credit' || r.cardType === 'both') card.cardType = r.cardType;
     out.push(card);
   }
   return out;
@@ -297,12 +321,34 @@ export const normalizeAccounts = (raw: unknown): BankAccount[] => {
       typeof r.initialBalanceCents === 'number'
         ? Math.round(r.initialBalanceCents)
         : Number(r.initialBalanceCents) || 0;
+    const kind = r.kind === 'cash' || r.kind === 'bank' ? r.kind : undefined;
+    const cardMode =
+      r.cardMode === 'debit' || r.cardMode === 'credit' || r.cardMode === 'both'
+        ? r.cardMode
+        : undefined;
+    const digits = asString(r.lastDigits).replace(/\D/g, '').slice(-4) || undefined;
+    const pixKey = asString(r.pixKey).trim() || undefined;
+    const hasCredit = typeof r.hasCredit === 'boolean' ? r.hasCredit : (cardMode === 'credit' || cardMode === 'both');
+    const creditLimitCents = typeof r.creditLimitCents === 'number' ? Math.round(r.creditLimitCents) : undefined;
+    const closingDay = typeof r.closingDay === 'number' ? clampDay(r.closingDay, 10) : undefined;
+    const dueDay = typeof r.dueDay === 'number' ? clampDay(r.dueDay, 17) : undefined;
+    const linkedCardId = asString(r.linkedCardId) || undefined;
+
     out.push({
       id: asString(r.id) || crypto.randomUUID(),
       name,
       icon: asString(r.icon) || '🏦',
       color: /^#[0-9a-f]{6}$/i.test(asString(r.color)) ? asString(r.color) : '#8b5cf6',
       initialBalanceCents,
+      kind,
+      cardMode,
+      hasCredit,
+      creditLimitCents,
+      closingDay,
+      dueDay,
+      lastDigits: digits,
+      pixKey,
+      linkedCardId,
       isDefault: Boolean(r.isDefault)
     });
   }
@@ -555,6 +601,102 @@ export const normalizeShortcuts = (raw: unknown): QuickShortcut[] => {
   return out;
 };
 
+export const normalizeSalaryRule = (raw: unknown): SalaryRule => {
+  if (!raw || typeof raw !== 'object') {
+    return { type: 'none', amountCents: 0 };
+  }
+  const r = raw as Record<string, unknown>;
+  const type =
+    r.type === 'fixed_day' || r.type === 'fifth_business_day' ? r.type : 'none';
+  const amountCents = asPositiveInt(r.amountCents);
+  const day =
+    typeof r.day === 'number' && r.day >= 1 && r.day <= 31 ? Math.floor(r.day) : undefined;
+  const accountId = asString(r.accountId) || undefined;
+  return { type, day, amountCents, accountId };
+};
+
+export const normalizeCustomTags = (raw: unknown): string[] => {
+  const list = normalizeTags(raw);
+  for (const def of DEFAULT_TAGS) {
+    if (!list.includes(def)) {
+      list.push(def);
+    }
+  }
+  return list;
+};
+
+export const normalizeHomeWidgets = (raw: unknown): HomeWidgetConfig[] => {
+  const defaults = DEFAULT_HOME_WIDGETS.map((w) => ({ ...w }));
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return defaults;
+  }
+  const out: HomeWidgetConfig[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    const id = r.id as HomeWidgetId;
+    const def = defaults.find((d) => d.id === id);
+    if (!def) continue;
+    out.push({
+      id,
+      label: asString(r.label) || def.label,
+      visible: typeof r.visible === 'boolean' ? r.visible : true
+    });
+  }
+  for (const def of defaults) {
+    if (!out.some((w) => w.id === def.id)) {
+      out.push({ ...def });
+    }
+  }
+  return out;
+};
+
+export const normalizeCoupleConfig = (raw: unknown): CoupleConfig => {
+  const fallback: CoupleConfig = {
+    enabled: false,
+    partnerName: 'Parceiro(a)',
+    myIncomeCents: 0,
+    partnerIncomeCents: 0,
+    splitRule: '50_50',
+    monthlyBudgetCents: 0
+  };
+  if (!raw || typeof raw !== 'object') return fallback;
+  const r = raw as Record<string, unknown>;
+  return {
+    enabled: Boolean(r.enabled),
+    partnerName: asString(r.partnerName) || 'Parceiro(a)',
+    myIncomeCents: asPositiveInt(r.myIncomeCents),
+    partnerIncomeCents: asPositiveInt(r.partnerIncomeCents),
+    splitRule: r.splitRule === 'proportional' ? 'proportional' : '50_50',
+    monthlyBudgetCents: asPositiveInt(r.monthlyBudgetCents)
+  };
+};
+
+export const normalizeSuggestions = (raw: unknown): UserSuggestion[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: UserSuggestion[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    const message = asString(r.message);
+    if (!message) continue;
+    const category =
+      r.category === 'idea' ||
+      r.category === 'ui' ||
+      r.category === 'bug' ||
+      r.category === 'couple'
+        ? r.category
+        : 'idea';
+    out.push({
+      id: asString(r.id) || crypto.randomUUID(),
+      category,
+      message,
+      createdAt: asString(r.createdAt) || new Date().toISOString()
+    });
+  }
+  return out;
+};
+
 const defaultTheme = (): Theme =>
   typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: light)').matches
     ? 'white'
@@ -562,6 +704,7 @@ const defaultTheme = (): Theme =>
 
 export const S: AppState = {
   name: 'Matheus',
+  salaryRule: { type: 'none', amountCents: 0 },
   theme: defaultTheme(),
   accent: '#8b5cf6',
   hide: false,
@@ -576,6 +719,18 @@ export const S: AppState = {
   frequentPeople: [],
   quickShortcuts: [],
   hasCompletedOnboarding: false,
+  hasCompletedTour: false,
+  customTags: [...DEFAULT_TAGS],
+  homeWidgets: DEFAULT_HOME_WIDGETS.map((w) => ({ ...w })),
+  couple: {
+    enabled: false,
+    partnerName: 'Parceiro(a)',
+    myIncomeCents: 0,
+    partnerIncomeCents: 0,
+    splitRule: '50_50',
+    monthlyBudgetCents: 0
+  },
+  suggestions: [],
   roundUpEnabled: false,
   paidInvoices: [],
   transfers: [],
@@ -599,6 +754,7 @@ export const setView = (v: ViewName): void => {
 export const migrate = (raw: unknown): Partial<AppState> => {
   if (!raw || typeof raw !== 'object') {
     return {
+      salaryRule: { type: 'none', amountCents: 0 },
       cats: cloneDefaultCategories(),
       budgets: {},
       goalCents: 0,
@@ -611,7 +767,19 @@ export const migrate = (raw: unknown): Partial<AppState> => {
       custodyInflows: [],
       quickShortcuts: [],
       roundUpEnabled: false,
-      hasCompletedOnboarding: false
+      hasCompletedOnboarding: false,
+      hasCompletedTour: false,
+      customTags: [...DEFAULT_TAGS],
+      homeWidgets: DEFAULT_HOME_WIDGETS.map((w) => ({ ...w })),
+      couple: {
+        enabled: false,
+        partnerName: 'Parceiro(a)',
+        myIncomeCents: 0,
+        partnerIncomeCents: 0,
+        splitRule: '50_50',
+        monthlyBudgetCents: 0
+      },
+      suggestions: []
     };
   }
   const data = raw as Record<string, unknown>;
@@ -643,6 +811,23 @@ export const migrate = (raw: unknown): Partial<AppState> => {
       if (typeof t.accountId === 'string' && t.accountId.trim()) {
         item.accountId = t.accountId.trim();
       }
+      if (t.subscriptionMeta && typeof t.subscriptionMeta === 'object') {
+        const sm = t.subscriptionMeta as Record<string, unknown>;
+        const ownership =
+          sm.ownership === 'mine' || sm.ownership === 'shared_mine' || sm.ownership === 'third_party_card'
+            ? sm.ownership
+            : 'mine';
+        item.subscriptionMeta = {
+          ownership,
+          ownerName: typeof sm.ownerName === 'string' && sm.ownerName.trim() ? sm.ownerName.trim() : undefined
+        };
+      }
+      if (t.paidBy === 'me' || t.paidBy === 'partner') {
+        item.paidBy = t.paidBy;
+      }
+      if (typeof t.isCoupleExpense === 'boolean') {
+        item.isCoupleExpense = t.isCoupleExpense;
+      }
       if (splitInfo) item.splitInfo = splitInfo;
       if (installments) item.installments = installments;
       if (recurring) item.recurring = recurring;
@@ -665,6 +850,11 @@ export const migrate = (raw: unknown): Partial<AppState> => {
   const paidInvoices = normalizePaidInvoices(data.paidInvoices);
   const transfers = normalizeTransfers(data.transfers);
   const custodyInflows = normalizeCustodyInflows(data.custodyInflows);
+  const salaryRule = normalizeSalaryRule(data.salaryRule);
+  const customTags = normalizeCustomTags(data.customTags);
+  const homeWidgets = normalizeHomeWidgets(data.homeWidgets);
+  const couple = normalizeCoupleConfig(data.couple);
+  const suggestions = normalizeSuggestions(data.suggestions);
 
   const result: Partial<AppState> = {
     tx,
@@ -678,6 +868,12 @@ export const migrate = (raw: unknown): Partial<AppState> => {
     paidInvoices,
     transfers,
     custodyInflows,
+    salaryRule,
+    hasCompletedTour: data.hasCompletedTour === true,
+    customTags,
+    homeWidgets,
+    couple,
+    suggestions,
     quickShortcuts: normalizeShortcuts(data.quickShortcuts),
     roundUpEnabled: data.roundUpEnabled === true,
     hasCompletedOnboarding:
@@ -685,15 +881,32 @@ export const migrate = (raw: unknown): Partial<AppState> => {
         ? data.hasCompletedOnboarding
         : tx.length > 0
   };
+  if (typeof data.age === 'number' && Number.isFinite(data.age)) {
+    result.age = Math.round(data.age);
+  }
+  if (typeof data.avatarId === 'string' && data.avatarId.trim()) {
+    result.avatarId = data.avatarId.trim();
+  }
+  if (typeof data.bannerId === 'string' && data.bannerId.trim()) {
+    result.bannerId = data.bannerId.trim();
+  }
   if (typeof data.defaultPixKey === 'string' && data.defaultPixKey.trim()) {
     result.defaultPixKey = data.defaultPixKey.trim();
+  }
+  if (typeof data.whatsappTemplate === 'string' && data.whatsappTemplate.trim()) {
+    result.whatsappTemplate = data.whatsappTemplate.trim();
+  } else {
+    result.whatsappTemplate = DEFAULT_WHATSAPP_TEMPLATE;
   }
   if (typeof data.name === 'string') result.name = data.name;
   if (
     data.theme === 'oled' ||
     data.theme === 'white' ||
     data.theme === 'grey' ||
-    data.theme === 'xp'
+    data.theme === 'xp' ||
+    data.theme === 'emerald' ||
+    data.theme === 'ocean' ||
+    data.theme === 'sunset'
   ) {
     result.theme = data.theme;
   }
@@ -717,6 +930,7 @@ export type InstallmentBaseTx = {
   type: TransactionType;
   v: number;
   n: string;
+  notes?: string;
   c: Category;
   d: string;
   pay?: PaymentMethod;
@@ -725,6 +939,9 @@ export type InstallmentBaseTx = {
   cardId?: string;
   accountId?: string;
   splitInfo?: BillSplitInfo;
+  subscriptionMeta?: SubscriptionMeta;
+  paidBy?: 'me' | 'partner';
+  isCoupleExpense?: boolean;
 };
 
 /**
@@ -772,6 +989,18 @@ export const createInstallments = (
       status
     };
 
+    if (baseTx.notes) {
+      item.notes = baseTx.notes;
+    }
+    if (baseTx.subscriptionMeta) {
+      item.subscriptionMeta = { ...baseTx.subscriptionMeta };
+    }
+    if (baseTx.paidBy) {
+      item.paidBy = baseTx.paidBy;
+    }
+    if (typeof baseTx.isCoupleExpense === 'boolean') {
+      item.isCoupleExpense = baseTx.isCoupleExpense;
+    }
     if (thirdParty) {
       item.thirdParty = {
         isThirdParty: true,
@@ -963,6 +1192,8 @@ export const getSemesterHistory = (referenceMonth: string = cur): MonthSummary[]
 export const getCalendarDays = (year: number, month: number): DaySummary[] => {
   const matrix = getMonthCalendarMatrix(year, month);
   const todayStr = toIsoDate(now);
+  const salaryDate = getSalaryDateForMonth(year, month, S.salaryRule);
+  const cardEvents = getCardCalendarEventsForMonth(year, month);
 
   return matrix.map((dateObj): DaySummary => {
     const dateStr = toIsoDate(dateObj);
@@ -999,6 +1230,17 @@ export const getCalendarDays = (year: number, month: number): DaySummary[] => {
       totalExpenseCents === 0 &&
       personalExpenseCents === 0;
 
+    const isSalaryDay = Boolean(salaryDate && dateStr === salaryDate);
+    const dayCardEvents = cardEvents
+      .filter((e) => e.dateStr === dateStr)
+      .map((e) => ({
+        cardId: e.cardId,
+        cardName: e.cardName,
+        cardColor: e.cardColor,
+        kind: e.kind,
+        invoiceTotalCents: e.invoiceTotalCents
+      }));
+
     return {
       dateStr,
       dayNumber,
@@ -1008,6 +1250,8 @@ export const getCalendarDays = (year: number, month: number): DaySummary[] => {
       totalIncomeCents,
       hasPendingBills,
       isNoSpendDay,
+      isSalaryDay,
+      cardEvents: dayCardEvents.length > 0 ? dayCardEvents : undefined,
       transactions
     };
   });
@@ -2224,6 +2468,272 @@ export const getMutualDebtCandidates = (): Array<{
 };
 
 /**
+ * Cria ou atualiza uma conta bancária com cartão de crédito/débito unificado.
+ */
+export const upsertBankWithCard = (options: {
+  accountId?: string;
+  cardId?: string;
+  bankName: string;
+  initialBalanceCents?: number;
+  cardMode: 'debit' | 'credit' | 'both';
+  hasCredit?: boolean;
+  kind?: 'bank' | 'cash';
+  cardLimitCents?: number;
+  closingDay?: number;
+  dueDay?: number;
+  color?: string;
+  icon?: string;
+  lastDigits?: string;
+  pixKey?: string;
+  isDefault?: boolean;
+}): { account: BankAccount; card?: CreditCard } => {
+  const name = options.bankName.trim() || 'Meu Banco';
+  let account: BankAccount | undefined;
+
+  if (options.accountId) {
+    account = S.accounts.find((a) => a.id === options.accountId);
+  } else if (options.cardId) {
+    const matchedCard = S.cards.find((c) => c.id === options.cardId);
+    if (matchedCard?.linkedAccountId) {
+      account = S.accounts.find((a) => a.id === matchedCard.linkedAccountId);
+    }
+  }
+
+  if (!account) {
+    account = S.accounts.find((a) => a.name.toLowerCase() === name.toLowerCase());
+  }
+
+  const hasCredit =
+    options.hasCredit !== undefined
+      ? options.hasCredit
+      : options.cardMode === 'credit' || options.cardMode === 'both';
+
+  if (account) {
+    account.name = name;
+    if (options.initialBalanceCents !== undefined) {
+      account.initialBalanceCents = Math.round(options.initialBalanceCents);
+    }
+    account.cardMode = options.cardMode;
+    account.hasCredit = hasCredit;
+    if (options.kind) account.kind = options.kind;
+    if (options.color) account.color = options.color;
+    if (options.icon) account.icon = options.icon;
+    if (options.lastDigits !== undefined) account.lastDigits = options.lastDigits;
+    if (options.pixKey !== undefined) account.pixKey = options.pixKey;
+    if (options.isDefault) {
+      S.accounts.forEach((a) => (a.isDefault = false));
+      account.isDefault = true;
+    }
+  } else {
+    account = {
+      id: options.accountId || `acc-${crypto.randomUUID().slice(0, 8)}`,
+      name,
+      icon: options.icon || (options.kind === 'cash' ? '💵' : '🏦'),
+      color: options.color || '#8b5cf6',
+      initialBalanceCents: Math.round(options.initialBalanceCents || 0),
+      kind: options.kind || 'bank',
+      cardMode: options.cardMode,
+      hasCredit,
+      lastDigits: options.lastDigits,
+      pixKey: options.pixKey,
+      isDefault: options.isDefault ?? S.accounts.length === 0
+    };
+    if (account.isDefault) {
+      S.accounts.forEach((a) => (a.isDefault = false));
+    }
+    S.accounts.push(account);
+  }
+
+  let card: CreditCard | undefined;
+  if (hasCredit) {
+    card = S.cards.find(
+      (c) =>
+        (options.cardId && c.id === options.cardId) ||
+        (account?.linkedCardId && c.id === account.linkedCardId) ||
+        c.linkedAccountId === account?.id ||
+        c.name.toLowerCase() === name.toLowerCase()
+    );
+
+    const limitCents = Math.round(options.cardLimitCents || card?.limitCents || 100000);
+    const closingDay = clampDay(options.closingDay || card?.closingDay, 10);
+    const dueDay = clampDay(options.dueDay || card?.dueDay, 17);
+
+    account.creditLimitCents = limitCents;
+    account.closingDay = closingDay;
+    account.dueDay = dueDay;
+    const cardType: 'credit' | 'both' = options.cardMode === 'credit' ? 'credit' : 'both';
+
+    if (card) {
+      card.name = name;
+      card.color = account.color;
+      card.lastDigits = account.lastDigits;
+      card.linkedAccountId = account.id;
+      card.limitCents = limitCents;
+      card.closingDay = closingDay;
+      card.dueDay = dueDay;
+      card.cardType = cardType;
+    } else {
+      const newCard: CreditCard = {
+        id: options.cardId || `card-${crypto.randomUUID().slice(0, 8)}`,
+        name,
+        color: account.color,
+        lastDigits: account.lastDigits,
+        limitCents,
+        closingDay,
+        dueDay,
+        linkedAccountId: account.id,
+        cardType
+      };
+      S.cards.push(newCard);
+      card = newCard;
+    }
+    account.linkedCardId = card.id;
+  } else {
+    // Se não tem crédito, desvincular ou remover de S.cards
+    const existingCardIdx = S.cards.findIndex(
+      (c) =>
+        (account?.linkedCardId && c.id === account.linkedCardId) ||
+        c.linkedAccountId === account?.id
+    );
+    if (existingCardIdx >= 0) {
+      S.cards.splice(existingCardIdx, 1);
+    }
+    account.linkedCardId = undefined;
+    account.creditLimitCents = undefined;
+    account.closingDay = undefined;
+    account.dueDay = undefined;
+  }
+
+  save();
+  return { account, card };
+};
+
+/**
+ * Alterna a visibilidade de um widget na tela inicial.
+ */
+export const toggleHomeWidget = (widgetId: HomeWidgetId): void => {
+  const w = S.homeWidgets.find((x) => x.id === widgetId);
+  if (w) {
+    w.visible = !w.visible;
+    save();
+  }
+};
+
+/**
+ * Reordena os widgets da Home para cima ou para baixo.
+ */
+export const moveHomeWidget = (widgetId: HomeWidgetId, direction: 'up' | 'down'): void => {
+  const idx = S.homeWidgets.findIndex((x) => x.id === widgetId);
+  if (idx < 0) return;
+  const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (targetIdx < 0 || targetIdx >= S.homeWidgets.length) return;
+  const temp = S.homeWidgets[idx];
+  S.homeWidgets[idx] = S.homeWidgets[targetIdx];
+  S.homeWidgets[targetIdx] = temp;
+  save();
+};
+
+/**
+ * Atualiza as configurações do Modo Casal.
+ */
+export const updateCoupleConfig = (partial: Partial<CoupleConfig>): void => {
+  S.couple = { ...S.couple, ...partial };
+  save();
+};
+
+/**
+ * Calcula o balanço e acerto do mês para despesas conjuntas do casal.
+ */
+export const getCoupleSummary = (monthYear: string = cur) => {
+  const txList = S.tx.filter(
+    (t) => t.isCoupleExpense && t.type === 'out' && ym(t.d) === monthYear
+  );
+  const totalCoupleExpenseCents = txList.reduce((acc, t) => acc + t.v, 0);
+  const paidByMeCents = txList
+    .filter((t) => t.paidBy !== 'partner')
+    .reduce((acc, t) => acc + t.v, 0);
+  const paidByPartnerCents = txList
+    .filter((t) => t.paidBy === 'partner')
+    .reduce((acc, t) => acc + t.v, 0);
+
+  let myShareCents = 0;
+  let partnerShareCents = 0;
+
+  if (S.couple.splitRule === 'proportional') {
+    const totalIncome = (S.couple.myIncomeCents || 0) + (S.couple.partnerIncomeCents || 0);
+    const myRatio = totalIncome > 0 ? (S.couple.myIncomeCents || 0) / totalIncome : 0.5;
+    myShareCents = Math.round(totalCoupleExpenseCents * myRatio);
+    partnerShareCents = totalCoupleExpenseCents - myShareCents;
+  } else {
+    myShareCents = Math.round(totalCoupleExpenseCents * 0.5);
+    partnerShareCents = totalCoupleExpenseCents - myShareCents;
+  }
+
+  const diff = paidByMeCents - myShareCents;
+  let settlementDebtor: 'me' | 'partner' | 'none' = 'none';
+  let settlementCents = 0;
+
+  if (diff > 0) {
+    settlementDebtor = 'partner';
+    settlementCents = diff;
+  } else if (diff < 0) {
+    settlementDebtor = 'me';
+    settlementCents = Math.abs(diff);
+  }
+
+  return {
+    totalCoupleExpenseCents,
+    paidByMeCents,
+    paidByPartnerCents,
+    myShareCents,
+    partnerShareCents,
+    settlementCents,
+    settlementDebtor,
+    isBalanced: settlementCents === 0
+  };
+};
+
+/**
+ * Adiciona uma sugestão ou feedback local.
+ */
+export const addSuggestion = (
+  category: 'idea' | 'ui' | 'bug' | 'couple',
+  message: string
+): UserSuggestion => {
+  const suggestion: UserSuggestion = {
+    id: crypto.randomUUID(),
+    category,
+    message: message.trim(),
+    createdAt: new Date().toISOString()
+  };
+  S.suggestions.push(suggestion);
+  save();
+  return suggestion;
+};
+
+/**
+ * Remove uma sugestão local.
+ */
+export const removeSuggestion = (id: string): void => {
+  S.suggestions = S.suggestions.filter((s) => s.id !== id);
+  save();
+};
+
+/**
+ * Adiciona uma nova tag customizada à lista global de tags.
+ */
+export const addCustomTag = (tag: string): string | null => {
+  const cleaned = normalizeTag(tag);
+  if (!cleaned) return null;
+  if (DEFAULT_TAGS.includes(cleaned) || S.customTags.includes(cleaned)) {
+    return cleaned;
+  }
+  S.customTags.push(cleaned);
+  save();
+  return cleaned;
+};
+
+/**
  * Limpa todas as movimentações, restaura categorias, orçamentos e metas no localStorage.
  */
 export const resetState = (): void => {
@@ -2241,10 +2751,27 @@ export const resetState = (): void => {
   S.quickShortcuts = [];
   S.roundUpEnabled = false;
   S.hasCompletedOnboarding = false;
+  S.hasCompletedTour = false;
+  S.salaryRule = { type: 'none', amountCents: 0 };
+  S.customTags = [...DEFAULT_TAGS];
+  S.homeWidgets = DEFAULT_HOME_WIDGETS.map((w) => ({ ...w }));
+  S.couple = {
+    enabled: false,
+    partnerName: 'Parceiro(a)',
+    myIncomeCents: 0,
+    partnerIncomeCents: 0,
+    splitRule: '50_50',
+    monthlyBudgetCents: 0
+  };
+  S.suggestions = [];
+  delete S.age;
+  delete S.avatarId;
+  delete S.bannerId;
   S.paidInvoices = [];
   S.transfers = [];
   S.custodyInflows = [];
   delete S.defaultPixKey;
+  S.whatsappTemplate = DEFAULT_WHATSAPP_TEMPLATE;
   save();
 };
 

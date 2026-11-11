@@ -10,9 +10,10 @@ import {
   type CardLimitStatus,
   type CardLimitUsage,
   type CreditCard,
+  type DayCardEvent,
   type Transaction
 } from '../types/finance';
-import { now, prevM, toIsoDate, ym } from './date';
+import { cur, now, prevM, toIsoDate, ym } from './date';
 
 /**
  * Retorna o valor real cobrado no cartão (se houve split, o valor integral da compra).
@@ -464,4 +465,143 @@ export const getHomeCommitmentsBreakdown = (monthYear: string): HomeCommitmentsB
     totalDebtsToReceiveCents,
     cardDetails
   };
+};
+
+export interface CardCalendarEventItem extends DayCardEvent {
+  dateStr: string;
+}
+
+/**
+ * Retorna os eventos de calendário de cada cartão (fechamento, melhor dia e vencimento) para o mês.
+ */
+export const getCardCalendarEventsForMonth = (
+  year: number,
+  month: number
+): CardCalendarEventItem[] => {
+  const ymStr = `${year}-${String(month).padStart(2, '0')}`;
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const events: CardCalendarEventItem[] = [];
+
+  for (const card of S.cards) {
+    const invoiceStatus = getCardInvoiceStatus(card.id, ymStr);
+    const invoiceTotalCents = invoiceStatus.totalCents;
+
+    // Fechamento da fatura
+    const closingD = Math.min(Math.max(1, card.closingDay), daysInMonth);
+    const closingDateStr = `${ymStr}-${String(closingD).padStart(2, '0')}`;
+    events.push({
+      dateStr: closingDateStr,
+      cardId: card.id,
+      cardName: card.name,
+      cardColor: card.color,
+      kind: 'closing',
+      invoiceTotalCents
+    });
+
+    // Melhor dia para compras
+    const bestDNum = getBestPurchaseDay(card.closingDay);
+    const bestD = Math.min(Math.max(1, bestDNum), daysInMonth);
+    const bestDateStr = `${ymStr}-${String(bestD).padStart(2, '0')}`;
+    events.push({
+      dateStr: bestDateStr,
+      cardId: card.id,
+      cardName: card.name,
+      cardColor: card.color,
+      kind: 'best_day',
+      invoiceTotalCents
+    });
+
+    // Vencimento da fatura
+    const dueD = Math.min(Math.max(1, card.dueDay), daysInMonth);
+    const dueDateStr = `${ymStr}-${String(dueD).padStart(2, '0')}`;
+    events.push({
+      dateStr: dueDateStr,
+      cardId: card.id,
+      cardName: card.name,
+      cardColor: card.color,
+      kind: 'due',
+      invoiceTotalCents
+    });
+  }
+
+  return events;
+};
+
+export interface UpcomingBillItem {
+  id: string;
+  title: string;
+  type: 'card_invoice' | 'pending_tx';
+  amountCents: number;
+  dueDate: string;
+  daysUntilDue: number;
+  cardId?: string;
+  cardColor?: string;
+  invoiceMonthYear?: string;
+  isOverdue: boolean;
+  status: 'open' | 'closed' | 'pending' | 'paid';
+}
+
+/**
+ * Retorna as faturas de cartão de crédito e contas pendentes próximas do vencimento.
+ */
+export const getUpcomingInvoicesAndBills = (): UpcomingBillItem[] => {
+  const list: UpcomingBillItem[] = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const currentYm = cur;
+  const nextYm = prevM(cur, -1);
+  const monthsToCheck = [currentYm, nextYm];
+
+  for (const card of S.cards) {
+    for (const mYm of monthsToCheck) {
+      const detailed = getCardDetailedInvoice(card.id, mYm);
+      if (detailed.remainingCents > 0 && detailed.status !== 'paid') {
+        const [y, m] = mYm.split('-').map(Number);
+        const daysInMonth = new Date(y, m, 0).getDate();
+        const dueD = Math.min(Math.max(1, card.dueDay), daysInMonth);
+        const dueDateStr = `${mYm}-${String(dueD).padStart(2, '0')}`;
+        const dueDateObj = new Date(y, m - 1, dueD);
+        const diffMs = dueDateObj.getTime() - today.getTime();
+        const daysUntilDue = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+        list.push({
+          id: `inv-${card.id}-${mYm}`,
+          title: `Fatura ${card.name} (${formatInvoiceLabel(mYm)})`,
+          type: 'card_invoice',
+          amountCents: detailed.remainingCents,
+          dueDate: dueDateStr,
+          daysUntilDue,
+          cardId: card.id,
+          cardColor: card.color,
+          invoiceMonthYear: mYm,
+          isOverdue: daysUntilDue < 0,
+          status: detailed.status === 'closed' ? 'closed' : 'open'
+        });
+      }
+    }
+  }
+
+  for (const t of S.tx) {
+    if (t.type === 'out' && t.status === 'pending' && !t.cardId) {
+      const [y, m, d] = t.d.split('-').map(Number);
+      const dueDateObj = new Date(y, m - 1, d);
+      const diffMs = dueDateObj.getTime() - today.getTime();
+      const daysUntilDue = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+      list.push({
+        id: `tx-${t.id}`,
+        title: t.n || 'Conta a pagar',
+        type: 'pending_tx',
+        amountCents: t.v,
+        dueDate: t.d,
+        daysUntilDue,
+        isOverdue: daysUntilDue < 0,
+        status: 'pending'
+      });
+    }
+  }
+
+  list.sort((a, b) => a.daysUntilDue - b.daysUntilDue);
+  return list;
 };

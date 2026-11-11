@@ -807,6 +807,84 @@ input {
   gap: 5px;
 }
 
+.cal-event-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .75rem;
+  line-height: 1;
+}
+
+.cal-mini-pill {
+  font-size: .65rem;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+  line-height: 1.1;
+  display: inline-block;
+}
+
+.cal-mini-pill.pos {
+  color: var(--pos);
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.cal-mini-pill.neg {
+  color: var(--neg);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.cal-mini-pill.warning {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.cal-mini-pill.mut {
+  color: var(--mut);
+  background: var(--card);
+}
+
+.cal-net-sub {
+  font-size: .65rem;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.cal-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: .72rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--bd);
+  background: var(--card);
+}
+
+.stats-source-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .8rem;
+  background: var(--card);
+  border: 1px solid var(--bd);
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.source-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.source-label {
+  font-weight: 500;
+}
+
 .pill-sub.pending[data-confirm-tx] {
   cursor: pointer;
 }

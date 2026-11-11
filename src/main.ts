@@ -28,12 +28,22 @@ import {
   removeShortcut,
   runShortcut,
   saveTransactionWithSplit,
-  cleanupSplitDebts
+  cleanupSplitDebts,
+  toggleHomeWidget,
+  moveHomeWidget,
+  updateCoupleConfig,
+  getCoupleSummary,
+  addSuggestion,
+  removeSuggestion,
+  settleMutualDebt,
+  settleAllDebtsOfPerson
 } from './state';
 import type {
   BillSplitInfo,
   Category,
   DebtRecord,
+  DebtType,
+  HomeWidgetId,
   SplitParticipant,
   Theme,
   ThirdPartyInfo,
@@ -49,20 +59,39 @@ import { home } from './components/home';
 import {
   cards,
   openAccountDialog,
+  openUnifiedCardAccountDialog,
   openAdjustBalanceDialog,
   openPayInvoiceDialog,
   openTransferDialog,
   stepCardsMonth
 } from './components/cards';
-import { stats } from './components/stats';
+import {
+  stats,
+  setStatsFilter,
+  StatsFilters,
+  setStatsChartTab,
+  StatsChartTab
+} from './components/stats';
 import {
   calendar,
   stepCalMonth,
   goCalToday,
   selectCalDate,
-  selectedDateStr
+  selectedDateStr,
+  setCalFilter,
+  CalFilter
 } from './components/calendar';
-import { profile, profileCatTab, setProfileCatTab } from './components/profile';
+import {
+  profile,
+  profileCatTab,
+  setProfileCatTab,
+  setProfileSectionTab,
+  openMediaAdjustDialog,
+  loadProfileMedia,
+  setProfileAvatar,
+  setProfileBanner,
+  compressImageFile
+} from './components/profile';
 import {
   history,
   historyFilters,
@@ -71,12 +100,24 @@ import {
   loadMoreHistory,
   renderHistoryResultsSection
 } from './components/history';
-import { debts, debtsTab, setDebtsTab, buildWhatsAppLink } from './components/debts';
+import {
+  debts,
+  debtsTab,
+  setDebtsTab,
+  buildWhatsAppLink,
+  formatWhatsAppMessage,
+  openWhatsAppConfigDialog,
+  openSendWhatsAppDialog,
+  openAmortizeWithAccount,
+  openSettleAllDialog
+} from './components/debts';
+import { suggestionsToCSV } from './utils/csv';
 import {
   openShortcutDialog,
   openDebtDialog,
   openAmortizeDialog,
   openCardDialog,
+  openCustomizeHomeDialog,
   closeDialog2,
   submitDialog2
 } from './components/dialogs';
@@ -84,7 +125,11 @@ import {
   onboarding,
   nextOnboardingStep,
   prevOnboardingStep,
-  finishOnboarding
+  finishOnboarding,
+  tourOverlay,
+  nextTourStep,
+  finishTour,
+  restartTour
 } from './components/onboarding';
 import {
   openForm,
@@ -93,7 +138,8 @@ import {
   getFormTags,
   addFormTag,
   removeFormTag,
-  getFormSplitInfo
+  getFormSplitInfo,
+  handleFormModalClick
 } from './components/form-modal';
 
 const $ = <T extends Element = HTMLElement>(s: string): T | null =>
@@ -187,7 +233,15 @@ export function render(): void {
   }
 
   const onbRoot = $<HTMLElement>('#onb-root');
-  if (onbRoot) onbRoot.innerHTML = onboarding();
+  if (onbRoot) {
+    if (!S.hasCompletedOnboarding) {
+      onbRoot.innerHTML = onboarding();
+    } else if (!S.hasCompletedTour) {
+      onbRoot.innerHTML = tourOverlay();
+    } else {
+      onbRoot.innerHTML = '';
+    }
+  }
 
   const p = $<HTMLSelectElement>('#per');
   if (p) p.value = String(S.per);
@@ -246,6 +300,40 @@ document.addEventListener('click', (e: MouseEvent) => {
     toast(`Tudo pronto, ${S.name}!`);
     return;
   }
+  if (g('[data-tour-next]')) {
+    nextTourStep();
+    render();
+    return;
+  }
+  if (g('[data-tour-finish]')) {
+    finishTour();
+    render();
+    toast('Tour concluído! Aproveite o Lumen.');
+    return;
+  }
+  if (g('[data-restart-tour]')) {
+    restartTour();
+    render();
+    return;
+  }
+  if (handleFormModalClick(target)) {
+    return;
+  }
+
+  if (g('[data-home-customize]')) {
+    openCustomizeHomeDialog();
+    return;
+  }
+  if ((b = g<HTMLButtonElement>('[data-move-widget]'))) {
+    const wid = b.dataset.moveWidget as HomeWidgetId;
+    const dir = (b.dataset.dir || 'up') as 'up' | 'down';
+    if (wid) {
+      moveHomeWidget(wid, dir);
+      openCustomizeHomeDialog();
+      render();
+    }
+    return;
+  }
 
   if ((b = g('[data-quick]'))) {
     const created = b.dataset.quick ? runShortcut(b.dataset.quick) : null;
@@ -292,12 +380,35 @@ document.addEventListener('click', (e: MouseEvent) => {
     openTransferDialog();
     return;
   }
-  if (g('[data-new-account]')) {
-    openAccountDialog();
+  if (
+    g('[data-new-unified]') ||
+    g('[data-new-account]') ||
+    g('[data-card-add]') ||
+    g('[data-new-card]')
+  ) {
+    openUnifiedCardAccountDialog();
+    return;
+  }
+  if ((b = g('[data-edit-unified]'))) {
+    if (b.dataset.editUnified) openUnifiedCardAccountDialog(b.dataset.editUnified);
+    return;
+  }
+  if ((b = g('[data-copy-pix]'))) {
+    const pix = b.dataset.copyPix;
+    if (pix) {
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard
+          .writeText(pix)
+          .then(() => toast(`Chave Pix copiada: ${pix}`))
+          .catch(() => toast(`Pix: ${pix}`));
+      } else {
+        toast(`Pix: ${pix}`);
+      }
+    }
     return;
   }
   if ((b = g('[data-edit-account]'))) {
-    if (b.dataset.editAccount) openAccountDialog(b.dataset.editAccount);
+    if (b.dataset.editAccount) openUnifiedCardAccountDialog(b.dataset.editAccount);
     return;
   }
   if ((b = g('[data-del-account]'))) {
@@ -315,22 +426,17 @@ document.addEventListener('click', (e: MouseEvent) => {
   }
   if ((b = g('[data-choose-icon]'))) {
     const ic = b.dataset.chooseIcon;
-    const hiddenInput = $<HTMLInputElement>('#acc-icon');
-    if (hiddenInput && ic) {
-      hiddenInput.value = ic;
-      b.parentElement?.querySelectorAll('.btn-icon-choice').forEach((el) => el.classList.remove('active'));
-      b.classList.add('active');
-    }
-    return;
-  }
-
-  if (g('[data-card-add]') || g('[data-new-card]')) {
-    openCardDialog();
+    const hiddenAcc = $<HTMLInputElement>('#acc-icon');
+    const hiddenUca = $<HTMLInputElement>('#uca-icon');
+    if (hiddenAcc && ic) hiddenAcc.value = ic;
+    if (hiddenUca && ic) hiddenUca.value = ic;
+    b.parentElement?.querySelectorAll('.btn-icon-choice').forEach((el) => el.classList.remove('active'));
+    b.classList.add('active');
     return;
   }
   if ((b = g('[data-card-edit]') || g('[data-edit-card]'))) {
     const cid = b.dataset.cardEdit || b.dataset.editCard;
-    if (cid) openCardDialog(cid);
+    if (cid) openUnifiedCardAccountDialog(cid);
     return;
   }
   if ((b = g('[data-card-del]') || g('[data-del-card]'))) {
@@ -365,7 +471,22 @@ document.addEventListener('click', (e: MouseEvent) => {
     return;
   }
   if ((b = g('[data-debt-pay]'))) {
-    if (b.dataset.debtPay) openAmortizeDialog(b.dataset.debtPay);
+    if (b.dataset.debtPay) openAmortizeWithAccount(b.dataset.debtPay);
+    return;
+  }
+  if ((b = g('[data-settle-person]'))) {
+    if (b.dataset.settlePerson && b.dataset.settleType) {
+      openSettleAllDialog(b.dataset.settlePerson, b.dataset.settleType as DebtType);
+    }
+    return;
+  }
+  if ((b = g('[data-compensate-person]'))) {
+    const person = b.dataset.compensatePerson;
+    if (person && confirm(`Executar o encontro de contas para ${person}? As dívidas mútuas serão abatidas automaticamente.`)) {
+      settleMutualDebt(person);
+      render();
+      toast(`Encontro de contas realizado para ${person}`);
+    }
     return;
   }
   if ((b = g('[data-debt-del]'))) {
@@ -377,17 +498,59 @@ document.addEventListener('click', (e: MouseEvent) => {
     }
     return;
   }
+
+  if (g('[data-debt-msg-config]')) {
+    openWhatsAppConfigDialog();
+    return;
+  }
+
   if ((b = g('[data-debt-wa]'))) {
-    const debt = S.debts.find((d) => d.id === b?.dataset.debtWa);
-    if (debt) {
-      if (debt.pixKey && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-        navigator.clipboard
-          .writeText(debt.pixKey)
-          .then(() => toast('Chave Pix copiada e mensagem aberta no WhatsApp'))
-          .catch(() => toast('Não foi possível copiar a chave Pix'));
-      }
-      window.open(buildWhatsAppLink(debt), '_blank', 'noopener');
+    const debtId = b.dataset.debtWa;
+    if (debtId) {
+      openSendWhatsAppDialog(debtId);
     }
+    return;
+  }
+
+  if ((b = g('[data-insert-wac-tag]'))) {
+    const tag = b.dataset.insertWacTag || '';
+    const txt = $<HTMLTextAreaElement>('#wac-template');
+    if (txt && tag) {
+      const start = txt.selectionStart || 0;
+      const end = txt.selectionEnd || 0;
+      const currentVal = txt.value;
+      txt.value = currentVal.substring(0, start) + tag + currentVal.substring(end);
+      txt.selectionStart = txt.selectionEnd = start + tag.length;
+      txt.focus();
+      txt.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    return;
+  }
+
+  if (g('[data-copy-send-pix]')) {
+    const pixInput = $<HTMLInputElement>('#wa-send-pix');
+    const pixVal = pixInput?.value?.trim() || '';
+    if (pixVal && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      navigator.clipboard
+        .writeText(pixVal)
+        .then(() => toast('Chave Pix copiada!'))
+        .catch(() => toast('Não foi possível copiar a chave Pix'));
+    } else if (!pixVal) {
+      toast('Nenhuma chave Pix informada');
+    }
+    return;
+  }
+
+  if (g('[data-send-wa-confirm]')) {
+    const txtArea = $<HTMLTextAreaElement>('#wa-send-text');
+    const text = txtArea?.value?.trim() || '';
+    if (!text) {
+      toast('A mensagem está vazia');
+      return;
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    closeDialog2();
+    toast('Cobrança enviada para o WhatsApp!');
     return;
   }
 
@@ -447,6 +610,15 @@ document.addEventListener('click', (e: MouseEvent) => {
     const dt = b.dataset.calDate;
     if (dt) {
       selectCalDate(dt);
+      render();
+    }
+    return;
+  }
+
+  if ((b = g('[data-cal-filter]'))) {
+    const f = b.dataset.calFilter as CalFilter;
+    if (f) {
+      setCalFilter(f);
       render();
     }
     return;
@@ -519,6 +691,29 @@ document.addEventListener('click', (e: MouseEvent) => {
     return;
   }
 
+  if ((b = g('[data-profile-section]'))) {
+    const sec = b.dataset.profileSection as 'overview' | 'settings';
+    if (sec) {
+      setProfileSectionTab(sec);
+      render();
+    }
+    return;
+  }
+
+  if ((b = g('[data-stats-tab]'))) {
+    const tab = b.dataset.statsTab as StatsChartTab;
+    if (tab) {
+      setStatsChartTab(tab);
+      render();
+    }
+    return;
+  }
+
+  if (g('[data-open-media-adjust]')) {
+    openMediaAdjustDialog();
+    return;
+  }
+
   if ((b = g('[data-cat-tab]'))) {
     const nextTab: TransactionType = b.dataset.catTab === 'in' ? 'in' : 'out';
     setProfileCatTab(nextTab);
@@ -550,6 +745,65 @@ document.addEventListener('click', (e: MouseEvent) => {
     return;
   }
 
+  if (g('[data-settle-couple]')) {
+    const summary = getCoupleSummary(cur);
+    if (summary.isBalanced || summary.settlementCents === 0) {
+      toast('As contas do casal já estão equilibradas!');
+      return;
+    }
+    const partner = S.couple.partnerName || 'Parceiro(a)';
+    const amount = summary.settlementCents;
+    if (summary.settlementDebtor === 'partner') {
+      addTx({
+        type: 'in',
+        v: amount,
+        n: `Acerto do casal de ${partner}`,
+        c: '🔄 Reembolsos & Cashback',
+        d: toIsoDate(now),
+        pay: 'money',
+        tags: ['casal'],
+        status: 'confirmed'
+      });
+      toast(`Recebimento de ${brl(amount)} de ${partner} registrado!`);
+    } else {
+      addTx({
+        type: 'out',
+        v: amount,
+        n: `Acerto do casal para ${partner}`,
+        c: '📦 Outros',
+        d: toIsoDate(now),
+        pay: 'money',
+        tags: ['casal'],
+        status: 'confirmed'
+      });
+      toast(`Pagamento de ${brl(amount)} para ${partner} registrado!`);
+    }
+    render();
+    return;
+  }
+
+  if ((b = g('[data-del-suggestion]'))) {
+    if (b.dataset.delSuggestion) {
+      removeSuggestion(b.dataset.delSuggestion);
+      render();
+      toast('Sugestão removida');
+    }
+    return;
+  }
+
+  if (g('[data-export-suggestions]')) {
+    const csv = suggestionsToCSV(S.suggestions);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `lumen-sugestoes-${toIsoDate(now)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('Sugestões exportadas com sucesso!');
+    return;
+  }
+
   if (g('#fgoal-save')) {
     const goalInput = $<HTMLInputElement>('#fgoal');
     const cents = parseCents(goalInput?.value);
@@ -568,7 +822,8 @@ document.addEventListener('click', (e: MouseEvent) => {
 
   if ((b = g('[data-add]'))) {
     const addType: TransactionType = b.dataset.add === 'in' ? 'in' : 'out';
-    openForm(addType, null, view === 'cal' ? selectedDateStr : undefined);
+    const defaultDate = b.dataset.defaultDate || (view === 'cal' ? selectedDateStr : undefined);
+    openForm(addType, null, defaultDate);
     return;
   }
   if (g('#fab')) {
@@ -650,6 +905,40 @@ document.addEventListener('change', (e: Event) => {
   const target = e.target as HTMLInputElement | HTMLSelectElement | null;
   if (!target) return;
 
+  if (target.id === 'onb-salary-rule') {
+    const wrap = $<HTMLElement>('#onb-salary-day-wrap');
+    if (wrap) wrap.style.display = target.value === 'fixed_day' ? 'block' : 'none';
+    return;
+  }
+  if (target.id === 'onb-card-mode') {
+    const fields = $<HTMLElement>('#onb-card-fields');
+    if (fields) fields.style.display = target.value === 'credit' || target.value === 'both' ? 'block' : 'none';
+    return;
+  }
+
+  if (target.id === 'uca-mode') {
+    const mode = target.value;
+    const creditBox = $<HTMLElement>('#uca-credit-fields');
+    const debitBox = $<HTMLElement>('#uca-debit-fields');
+    if (creditBox) creditBox.style.display = mode === 'both' || mode === 'credit' ? 'block' : 'none';
+    if (debitBox) debitBox.style.display = mode === 'credit' ? 'none' : 'block';
+    return;
+  }
+
+  if (target.dataset && target.dataset.toggleWidget) {
+    const wid = target.dataset.toggleWidget as HomeWidgetId;
+    toggleHomeWidget(wid);
+    render();
+    return;
+  }
+
+  if (target.dataset && target.dataset.statsFilter) {
+    const filterKey = target.dataset.statsFilter as keyof StatsFilters;
+    setStatsFilter(filterKey, target.value as any);
+    render();
+    return;
+  }
+
   if (target.id === 'per') {
     S.per = +target.value;
     save();
@@ -715,6 +1004,111 @@ document.addEventListener('change', (e: Event) => {
     render();
     return;
   }
+  if (target.id === 'hist-card') {
+    updateHistoryFilters({ cardId: target.value });
+    const dynArea = $<HTMLElement>('#hist-dynamic-area');
+    if (dynArea) dynArea.innerHTML = renderHistoryResultsSection();
+    return;
+  }
+  if (target.id === 'hist-account') {
+    updateHistoryFilters({ accountId: target.value });
+    const dynArea = $<HTMLElement>('#hist-dynamic-area');
+    if (dynArea) dynArea.innerHTML = renderHistoryResultsSection();
+    return;
+  }
+  if (target.id === 'am-funding-source') {
+    const accWrap = $<HTMLElement>('#am-acc-wrap');
+    if (accWrap) accWrap.style.display = target.value === 'my_account' ? 'block' : 'none';
+    return;
+  }
+  if (target.id === 'st-funding-source') {
+    const accWrap = $<HTMLElement>('#st-acc-wrap');
+    if (accWrap) accWrap.style.display = target.value === 'my_account' ? 'block' : 'none';
+    return;
+  }
+  if (target.id === 'profile-age') {
+    const val = parseInt(target.value, 10);
+    S.age = isNaN(val) ? undefined : Math.max(0, val);
+    save();
+    return;
+  }
+  if (target.id === 'profile-salary-type') {
+    S.salaryRule.type = target.value as any;
+    const dayWrap = $<HTMLElement>('#profile-salary-day-wrap');
+    if (dayWrap) dayWrap.style.display = target.value === 'fixed_day' ? 'block' : 'none';
+    save();
+    render();
+    return;
+  }
+  if (target.id === 'profile-salary-day') {
+    const day = parseInt(target.value, 10);
+    S.salaryRule.day = isNaN(day) ? 5 : Math.min(31, Math.max(1, day));
+    save();
+    return;
+  }
+  if (target.id === 'profile-salary-amount') {
+    S.salaryRule.amountCents = parseAmountInput(target.value);
+    save();
+    return;
+  }
+  if (target.id === 'profile-salary-account') {
+    S.salaryRule.accountId = target.value;
+    save();
+    return;
+  }
+  if (target.id === 'couple-enabled') {
+    const checked = (target as HTMLInputElement).checked;
+    updateCoupleConfig({ enabled: checked });
+    render();
+    toast(checked ? 'Modo Casal ativado!' : 'Modo Casal desativado');
+    return;
+  }
+  if (target.id === 'couple-partner-name') {
+    updateCoupleConfig({ partnerName: target.value.trim() || 'Parceiro(a)' });
+    return;
+  }
+  if (target.id === 'couple-split-rule') {
+    updateCoupleConfig({ splitRule: target.value as '50_50' | 'proportional' });
+    render();
+    return;
+  }
+  if (target.id === 'couple-my-income') {
+    updateCoupleConfig({ myIncomeCents: parseAmountInput(target.value) });
+    render();
+    return;
+  }
+  if (target.id === 'couple-partner-income') {
+    updateCoupleConfig({ partnerIncomeCents: parseAmountInput(target.value) });
+    render();
+    return;
+  }
+  if (target.id === 'couple-budget') {
+    updateCoupleConfig({ monthlyBudgetCents: parseAmountInput(target.value) });
+    render();
+    return;
+  }
+  if (target.id === 'profile-banner-file') {
+    const file = (target as HTMLInputElement).files?.[0];
+    if (file) {
+      compressImageFile(file, 1200, 0.8).then(async (url) => {
+        await setProfileBanner(url);
+        render();
+        toast('Capa do perfil atualizada!');
+      });
+    }
+    return;
+  }
+  if (target.id === 'profile-avatar-file') {
+    const file = (target as HTMLInputElement).files?.[0];
+    if (file) {
+      compressImageFile(file, 400, 0.85).then(async (url) => {
+        await setProfileAvatar(url);
+        render();
+        toast('Foto do perfil atualizada!');
+      });
+    }
+    return;
+  }
   if (target.dataset && target.dataset.budgetInput) {
     const catId = target.dataset.budgetInput;
     const cents = parseCents(target.value);
@@ -750,6 +1144,61 @@ document.addEventListener('input', (e: Event) => {
         render();
       }
     }, 150);
+    return;
+  }
+
+  if (target.id === 'nm') {
+    S.name = target.value.trim() || 'Matheus';
+    save();
+    return;
+  }
+  if (target.id === 'profile-age') {
+    const val = parseInt(target.value, 10);
+    S.age = isNaN(val) ? undefined : Math.max(0, val);
+    save();
+    return;
+  }
+  if (target.id === 'profile-salary-day') {
+    const day = parseInt(target.value, 10);
+    S.salaryRule.day = isNaN(day) ? 5 : Math.min(31, Math.max(1, day));
+    save();
+    return;
+  }
+  if (target.id === 'profile-salary-amount') {
+    S.salaryRule.amountCents = parseAmountInput(target.value);
+    save();
+    return;
+  }
+  if (target.id === 'couple-partner-name') {
+    updateCoupleConfig({ partnerName: target.value.trim() || 'Parceiro(a)' });
+    return;
+  }
+  if (target.id === 'couple-my-income') {
+    updateCoupleConfig({ myIncomeCents: parseAmountInput(target.value) });
+    return;
+  }
+  if (target.id === 'couple-partner-income') {
+    updateCoupleConfig({ partnerIncomeCents: parseAmountInput(target.value) });
+    return;
+  }
+  if (target.id === 'couple-budget') {
+    updateCoupleConfig({ monthlyBudgetCents: parseAmountInput(target.value) });
+    return;
+  }
+  if (target.id === 'wac-template' || target.id === 'wac-default-pix') {
+    const tplEl = $<HTMLTextAreaElement>('#wac-template');
+    const pixEl = $<HTMLInputElement>('#wac-default-pix');
+    const previewEl = $<HTMLElement>('#wac-preview');
+    if (previewEl && tplEl) {
+      const tpl = tplEl.value;
+      const pix = pixEl?.value.trim() || 'sua-chave@pix.com';
+      previewEl.textContent = tpl
+        .replace(/\{nome\}/gi, 'Carlos Silva')
+        .replace(/\{valor\}/gi, 'R$ 75,00')
+        .replace(/\{descricao\}/gi, 'Almoço de sexta')
+        .replace(/\{pix\}/gi, pix);
+    }
+    return;
   }
 });
 
@@ -854,12 +1303,38 @@ const handleTxFormSubmit = (e: SubmitEvent, formEl: HTMLFormElement): void => {
   const dVal = fd?.value || toIsoDate(now);
   const status: TransactionStatus = ym(dVal) > cur ? 'pending' : 'confirmed';
 
+  const fnotes = $<HTMLTextAreaElement>('#fnotes');
+  const notes = fnotes?.value?.trim() || undefined;
+
+  const fsubOwnership = $<HTMLSelectElement>('#fsub-ownership');
+  const catName = (fc?.value || '').toLowerCase();
+  const isSubCategory =
+    catName.includes('streaming') ||
+    catName.includes('assinatura') ||
+    catName.includes('academia') ||
+    catName.includes('bem-estar');
+  const subscriptionMeta =
+    isSubCategory && fsubOwnership
+      ? {
+          ownership: (fsubOwnership.value as 'mine' | 'shared_mine' | 'third_party_card') || 'mine'
+        }
+      : undefined;
+
+  const coupleChk = $<HTMLInputElement>('#f-couple-chk');
+  const couplePaidBy = $<HTMLSelectElement>('#f-couple-paidby');
+  const isCoupleExpense = coupleChk ? coupleChk.checked : false;
+  const paidBy = isCoupleExpense && couplePaidBy ? (couplePaidBy.value as 'me' | 'partner') : undefined;
+
   const baseFields = {
     accountId,
     cardId,
     type: activeType,
     v,
     n: (fn?.value || '').trim(),
+    notes,
+    subscriptionMeta,
+    isCoupleExpense,
+    paidBy,
     c: (fc?.value || 'Outros') as Category,
     d: dVal,
     pay: normalizePay(fpay?.value),
@@ -1070,6 +1545,20 @@ document.addEventListener('submit', (e: SubmitEvent) => {
 
   if (target.id === 'f2') {
     e.preventDefault();
+    if (target.dataset.kind === 'settle-all') {
+      const person = target.dataset.settlePerson || '';
+      const debtType = (target.dataset.settleType as DebtType) || 'to_receive';
+      const accId = target.querySelector<HTMLSelectElement>('#st-account')?.value;
+      const fundingSource = (target.querySelector<HTMLSelectElement>('#st-funding-source')?.value as
+        | 'my_account'
+        | 'third_party_custody'
+        | 'external') || 'my_account';
+      settleAllDebtsOfPerson(person, debtType, false, accId, fundingSource);
+      closeDialog2();
+      render();
+      toast(`Todas as dívidas de ${person} foram liquidadas.`);
+      return;
+    }
     const res = submitDialog2(target);
     if (!res.ok) {
       const err = $<HTMLElement>('#f2e');
@@ -1079,6 +1568,20 @@ document.addEventListener('submit', (e: SubmitEvent) => {
     closeDialog2();
     render();
     toast(res.message);
+    return;
+  }
+
+  if (target.id === 'f-suggestion') {
+    e.preventDefault();
+    const catSel = $<HTMLSelectElement>('#sugg-category');
+    const msgInput = $<HTMLInputElement>('#sugg-message');
+    const category = (catSel?.value || 'idea') as any;
+    const message = msgInput?.value.trim() || '';
+    if (message) {
+      addSuggestion(category, message);
+      render();
+      toast('Obrigado pelo feedback! Sugestão registrada.');
+    }
     return;
   }
 
@@ -1115,6 +1618,9 @@ if (formEl && typeof formEl.addEventListener === 'function') {
    ========================================================================== */
 
 materializeRecurring();
+loadProfileMedia().then(() => {
+  render();
+});
 render();
 
 if (

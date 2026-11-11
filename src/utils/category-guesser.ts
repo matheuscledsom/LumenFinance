@@ -24,21 +24,79 @@ export const KEYWORD_CATEGORY_MAP: Record<string, readonly string[]> = {
     'oficina',
     'ipva'
   ],
-  Alimentação: [
-    'ifood',
+  Supermercado: [
     'mercado',
     'supermercado',
+    'carrefour',
+    'assai',
+    'atacadao',
+    'pao de acucar',
+    'extra',
+    'dia',
+    'hortifruti',
+    'feira',
+    'sacolao',
+    'acougue',
+    'padaria'
+  ],
+  Alimentação: [
+    'ifood',
     'restaurante',
-    'padaria',
     'almoco',
     'jantar',
     'cafe',
     'lanche',
     'pizza',
     'hamburguer',
-    'acougue',
-    'feira',
-    'hortifruti'
+    'sushi',
+    'mcdonalds',
+    'burguer king'
+  ],
+  'Streaming & Assinaturas': [
+    'netflix',
+    'spotify',
+    'amazon prime',
+    'prime video',
+    'disney',
+    'hbo',
+    'max',
+    'youtube',
+    'deezer',
+    'apple',
+    'paramount',
+    'star+',
+    'crunchyroll',
+    'assinatura',
+    'globoplay'
+  ],
+  'Academia & Bem-estar': [
+    'smartfit',
+    'smart fit',
+    'bluefit',
+    'academia',
+    'gympass',
+    'totalpass',
+    'pilates',
+    'crossfit',
+    'natacao',
+    'suplemento',
+    'creatina',
+    'whey',
+    'personal'
+  ],
+  'Saúde & Médico': [
+    'farmacia',
+    'drogaria',
+    'consulta',
+    'exame',
+    'medico',
+    'dentista',
+    'hospital',
+    'remedio',
+    'medicamento',
+    'psicologo',
+    'clinica',
+    'terapia'
   ],
   Saúde: [
     'farmacia',
@@ -51,8 +109,24 @@ export const KEYWORD_CATEGORY_MAP: Record<string, readonly string[]> = {
     'remedio',
     'medicamento',
     'psicologo',
-    'academia',
     'clinica'
+  ],
+  'Moradia & Contas': [
+    'aluguel',
+    'condominio',
+    'luz',
+    'energia',
+    'enel',
+    'agua',
+    'sabesp',
+    'internet',
+    'claro',
+    'vivo',
+    'tim',
+    'gas',
+    'iptu',
+    'reforma',
+    'faxina'
   ],
   Moradia: [
     'aluguel',
@@ -65,10 +139,21 @@ export const KEYWORD_CATEGORY_MAP: Record<string, readonly string[]> = {
     'iptu',
     'reforma'
   ],
+  'Lazer & Restaurantes': [
+    'cinema',
+    'show',
+    'viagem',
+    'hotel',
+    'bar',
+    'festa',
+    'jogo',
+    'steam',
+    'passeio',
+    'balada',
+    'ingresso'
+  ],
   Lazer: [
     'cinema',
-    'netflix',
-    'spotify',
     'show',
     'viagem',
     'hotel',
@@ -77,6 +162,18 @@ export const KEYWORD_CATEGORY_MAP: Record<string, readonly string[]> = {
     'jogo',
     'steam',
     'passeio'
+  ],
+  'Educação & Cursos': [
+    'curso',
+    'faculdade',
+    'escola',
+    'livro',
+    'apostila',
+    'mensalidade',
+    'idioma',
+    'ingles',
+    'udemy',
+    'alura'
   ],
   Educação: [
     'curso',
@@ -88,17 +185,60 @@ export const KEYWORD_CATEGORY_MAP: Record<string, readonly string[]> = {
     'idioma',
     'ingles'
   ],
+  'Compras & Vestuário': [
+    'shopee',
+    'shein',
+    'aliexpress',
+    'amazon',
+    'mercado livre',
+    'zara',
+    'renner',
+    'c&a',
+    'riachuelo',
+    'roupa',
+    'tenis',
+    'sapato',
+    'calcado',
+    'vestuario'
+  ],
+  Pets: [
+    'petshop',
+    'pet shop',
+    'veterinario',
+    'racao',
+    'cobasi',
+    'petz',
+    'gato',
+    'cachorro',
+    'banho e tosa'
+  ],
   Salário: [
     'salario',
     'pagamento',
     'holerite',
     'adiantamento',
-    'ferias',
-    'plr',
-    'bonus'
+    'ferias'
   ],
+  'Bônus, 13º & PLR': [
+    'plr',
+    'bonus',
+    '13',
+    'decimo terceiro',
+    'participacao',
+    'premiacao'
+  ],
+  'Reembolsos & Cashback': [
+    'reembolso',
+    'cashback',
+    'estorno',
+    'devolucao',
+    'meliuz'
+  ],
+  'Freelance & Projetos': ['freelance', 'freela', 'projeto', 'consultoria', 'servico'],
   Freelance: ['freelance', 'freela', 'projeto', 'consultoria', 'servico'],
-  Vendas: ['venda', 'comissao', 'reembolso', 'desapego', 'olx'],
+  'Vendas & Comissões': ['venda', 'comissao', 'desapego', 'olx', 'enjoei'],
+  Vendas: ['venda', 'comissao', 'desapego', 'olx'],
+  'Rendimentos & Dividendos': ['dividendo', 'rendimento', 'juros', 'cdb', 'tesouro', 'fii', 'investimento'],
   Rendimentos: ['dividendo', 'rendimento', 'juros', 'cdb', 'tesouro', 'fii', 'investimento']
 };
 

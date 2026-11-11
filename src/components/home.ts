@@ -6,6 +6,7 @@ import {
   S,
   getAccountBalances,
   getCategoryBudgetsProgress,
+  getCoupleSummary,
   getRoundUpTotal,
   normalizePay,
   normalizeTags
@@ -14,6 +15,7 @@ import { getCategoryIcon, getPaymentLabel } from '../types/finance';
 import { brl, esc, sum } from '../utils/currency';
 import { getCardDetailedInvoice, getHomeCommitmentsBreakdown } from '../utils/credit-card';
 import { now, cur, ym, prevM, dfmt } from '../utils/date';
+import { renderStatementAndBillsWidget } from './profile';
 
 export function home(): string {
   const A = S.tx;
@@ -103,6 +105,10 @@ export function home(): string {
 
   const accountBalances = getAccountBalances();
 
+  const totalBankBalanceCents = accountBalances.reduce(
+    (acc, a) => acc + a.totalBankBalanceCents,
+    0
+  );
   const totalPersonalBalanceCents = accountBalances.reduce(
     (acc, a) => acc + a.personalBalanceCents,
     0
@@ -118,6 +124,7 @@ export function home(): string {
     return acc + detailed.remainingCents;
   }, 0);
 
+  // Widget: indicators
   const topIndicatorsHtml = `
     <div class="home-top-indicators wide" role="group" aria-label="Indicadores principais">
       <div class="indicator-chip${isAnyNearZero ? ' warning' : ''}" title="Soma do saldo líquido próprio disponível para débito/pix">
@@ -135,6 +142,7 @@ export function home(): string {
       </div>
     </div>`;
 
+  // Widget: accounts
   const accountPillsHtml = accountBalances.length
     ? `<div class="account-pills-bar wide" role="group" aria-label="Saldos por conta">${accountBalances
         .map(
@@ -164,6 +172,7 @@ export function home(): string {
         .join('')}</div>`
     : '';
 
+  // Widget: commitments
   const commitments = getHomeCommitmentsBreakdown(m);
   const totalCommitmentsDisplay = S.hide ? '••••' : brl(commitments.totalCommitmentsCents);
 
@@ -222,6 +231,7 @@ export function home(): string {
     </div>
   </section>`;
 
+  // Widget: shortcuts
   const quickChips = S.quickShortcuts
     .map(
       (sc) =>
@@ -234,6 +244,33 @@ export function home(): string {
       : ''
   }</div>`;
 
+  // Widget: couple
+  const coupleSummary = getCoupleSummary(m);
+  const coupleWidgetHtml = S.couple.enabled
+    ? `<section class="card wide couple-home-card">
+        ${ch('💑 Modo Casal · Contas Conjuntas', `<span class="pill ${coupleSummary.isBalanced ? 'pos' : 'neg'}">${coupleSummary.isBalanced ? 'Equilibrado' : coupleSummary.settlementDebtor === 'partner' ? `${esc(S.couple.partnerName)} deve` : 'Você deve'}</span>`)}
+        <div class="cb">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:8px">
+            <div>
+              <div class="mut" style="font-size:.78rem">Total Gasto pelo Casal:</div>
+              <div class="big num" style="font-size:1.4rem">${S.hide ? '••••' : brl(coupleSummary.totalCoupleExpenseCents)}</div>
+            </div>
+            <div style="text-align:right">
+              <div class="mut" style="font-size:.78rem">Acerto do Mês:</div>
+              <div class="num ${coupleSummary.isBalanced ? 'pos' : 'neg'}" style="font-size:1.1rem;font-weight:700">
+                ${S.hide ? '••••' : coupleSummary.isBalanced ? 'Tudo certo!' : `${brl(coupleSummary.settlementCents)} (${coupleSummary.settlementDebtor === 'partner' ? `${esc(S.couple.partnerName)} paga a você` : `Você paga a ${esc(S.couple.partnerName)}`})`}
+              </div>
+            </div>
+          </div>
+          <div class="mut" style="font-size:.78rem;display:flex;justify-content:space-between;border-top:1px solid var(--bd);padding-top:6px">
+            <span>Você pagou: <b>${S.hide ? '••••' : brl(coupleSummary.paidByMeCents)}</b> (sua parte: ${brl(coupleSummary.myShareCents)})</span>
+            <span>${esc(S.couple.partnerName)}: <b>${S.hide ? '••••' : brl(coupleSummary.paidByPartnerCents)}</b></span>
+          </div>
+        </div>
+      </section>`
+    : '';
+
+  // Widget: goal
   const savedCents = Math.max(0, netMonth);
   const goalPct = S.goalCents > 0 ? Math.max(0, (savedCents / S.goalCents) * 100) : 0;
   const goalBarWidth = Math.min(100, goalPct).toFixed(0);
@@ -243,6 +280,7 @@ export function home(): string {
       ? `<section class="card wide">${ch('Meta de economia mensal', `<span class="pill ${goalPct >= 100 ? 'pos' : ''}">${goalPct.toFixed(0)}%</span>`)}<div class="cb"><div class="goal-summary"><b>${brl(savedCents)} de ${brl(S.goalCents)} economizados · ${goalPct.toFixed(0)}%</b><span class="mut">Saldo líquido do mês: <b class="${netMonth >= 0 ? 'pos' : 'neg'}">${brl(netMonth)}</b></span></div><div class="prog-track" role="progressbar" aria-valuenow="${goalPct.toFixed(0)}" aria-valuemin="0" aria-valuemax="100"><div class="prog-fill ${goalPct >= 100 ? 'pos-bg' : ''}" style="width:${goalBarWidth}%"></div></div></div></section>`
       : `<section class="card wide">${ch('Meta de economia mensal')}<div class="cb"><div class="goal-summary"><span class="mut">Saldo líquido do mês: <b class="${netMonth >= 0 ? 'pos' : 'neg'}">${brl(netMonth)}</b> · Defina uma meta mensal no seu <button type="button" class="link-btn" data-v="profile">Perfil</button>.</span></div></div></section>`;
 
+  // Widget: spending_chart
   const legItemsHtml = top
     .map((r, i) => {
       const sharePct = spent > 0 ? ((r[1] / spent) * 100).toFixed(0) : '0';
@@ -257,25 +295,17 @@ export function home(): string {
     })
     .join('');
 
-  return `<header class="wide"><h1>Olá, <b>${esc(S.name)}</b><div class="mut" style="font-size:.8rem;font-weight:500">${now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</div></h1>
-<div style="display:flex;gap:8px"><button class="ib" id="eye" aria-label="${S.hide ? 'Mostrar' : 'Ocultar'} valores" aria-pressed="${S.hide}">${S.hide ? '🙈' : '👁'}</button><button class="ib" data-v="profile" aria-label="Configurações">⚙</button></div></header>
-<section class="card bal wide" title="Toque duas vezes para ocultar/mostrar valores">${ch('Saldo total')}<div class="cb"><div class="big num">${brl(bal)}</div>
-<span class="pill ${chg == null ? '' : chg >= 0 ? 'pos' : 'neg'}">${chg == null ? 'Sem mês anterior para comparar' : (chg >= 0 ? '↑ +' : '↓ ') + chg.toFixed(0) + '% vs. mês passado'}</span></div></section>
-${topIndicatorsHtml}
-${accountPillsHtml}
-${quickBarHtml}
-<div class="acts wide"><button class="btn" data-add="out">− Registrar gasto</button><button class="btn p" data-add="in">+ Registrar ganho</button></div>
-${commitmentsCardHtml}
-${goalCardHtml}
-<section class="card">${ch('Seus gastos', `<select id="per" aria-label="Período"><option value="0">Este mês</option><option value="1">Mês passado</option></select>`)}<div class="cb">
+  const spendingChartHtml = `<section class="card wide">${ch('Seus gastos', `<select id="per" aria-label="Período"><option value="0">Este mês</option><option value="1">Mês passado</option></select>`)}<div class="cb">
 ${
   spent || budgetProgresses.length
     ? `<div class="spend"><div><div class="big num" style="font-size:1.8rem">${brl(spent)}</div><div class="mut">Total de gastos</div>${sv == null ? '' : `<div class="${sv <= 0 ? 'pos' : 'neg'}" style="margin-top:8px;font-weight:700">${sv <= 0 ? '↓' : '↑'} ${Math.abs(sv).toFixed(0)}% <span class="mut">vs. mês anterior</span></div>`}</div>
 <svg width="120" height="120" viewBox="0 0 120 120" role="img" aria-label="${pct.toFixed(0)}% da renda gasta"><circle r="${R}" cx="60" cy="60" fill="none" stroke="var(--bd)" stroke-width="14"/>${arcs}<text x="60" y="60" text-anchor="middle" fill="var(--tx)" font-weight="800" font-size="18">${earned ? pct.toFixed(0) + '%' : '—'}</text><text x="60" y="76" text-anchor="middle" fill="var(--mut)" font-size="10">da renda</text></svg></div>
 <div class="leg">${legItemsHtml}</div>`
     : `<div class="empty">Nenhum gasto neste período.<br><button class="btn p" data-add="out">Registrar gasto</button></div>`
-}</div></section>
-<section class="card">${ch('Últimas movimentações', '<button type="button" class="link-btn" data-v="history">Ver histórico completo</button>')}<div class="cb">
+}</div></section>`;
+
+  // Widget: recent_tx
+  const recentTxHtml = `<section class="card wide">${ch('Últimas movimentações', '<button type="button" class="link-btn" data-v="history">Ver histórico completo</button>')}<div class="cb">
 ${
   last.length
     ? last
@@ -322,13 +352,60 @@ ${
             t.splitInfo && t.splitInfo.participants.length > 1
               ? `<span class="pill-sub split-badge">🤝 Dividido (${t.splitInfo.participants.length} pessoas)</span>`
               : '';
+          const coupleBadge = t.isCoupleExpense
+            ? `<span class="pill-sub" style="border-color:var(--ac)">💑 Casal (${t.paidBy === 'partner' ? esc(S.couple.partnerName) : 'Eu'})</span>`
+            : '';
 
-          const subBadges = tpBadge + splitBadge + instBadge + recBadge + pendingBadge;
+          const subBadges = tpBadge + splitBadge + coupleBadge + instBadge + recBadge + pendingBadge;
           const hasChips = Boolean(subBadges || tagsHtml);
-          const payAndTags = `<span class="tx-meta">${payBadge}${hasChips ? ' · ' : ''}${subBadges}${tagsHtml}</span>`;
+          const notesHtml = t.notes ? `<div class="tx-notes mut" style="font-size:.78rem;margin-top:2px">📝 ${esc(t.notes)}</div>` : '';
+          const payAndTags = `<span class="tx-meta">${payBadge}${hasChips ? ' · ' : ''}${subBadges}${tagsHtml}</span>${notesHtml}`;
           return `<button class="tx ${t.type}${t.status === 'pending' ? ' pending-tx' : ''}" data-id="${esc(t.id)}" aria-label="Editar ${esc(t.n)}"><span class="av">${esc(icon)}</span><span class="m"><b>${esc(t.n)}</b><span class="mut">${esc(t.c)} · ${dfmt(t.d)}</span>${payAndTags}</span><b class="num ${t.type === 'in' ? 'pos' : 'neg'}">${t.type === 'in' ? '+' : '−'} ${brl(t.v)}</b></button>`;
         })
         .join('') + '<div class="mut" style="margin-top:8px">Toque em uma movimentação para editá-la.</div>'
     : `<div class="empty">Suas movimentações aparecerão aqui.<br><button class="btn p" data-add="in">Registrar ganho</button></div>`
 }</div></section>`;
+
+  const widgetRenderers: Record<string, () => string> = {
+    indicators: () => topIndicatorsHtml,
+    accounts: () => accountPillsHtml,
+    shortcuts: () => quickBarHtml,
+    commitments: () => commitmentsCardHtml,
+    statement_bills: () => renderStatementAndBillsWidget(),
+    couple: () => coupleWidgetHtml,
+    goal: () => goalCardHtml,
+    spending_chart: () => spendingChartHtml,
+    recent_tx: () => recentTxHtml
+  };
+
+  const renderedWidgets = S.homeWidgets
+    .filter((w) => w.visible)
+    .map((w) => (widgetRenderers[w.id] ? widgetRenderers[w.id]() : ''))
+    .filter(Boolean)
+    .join('\n');
+
+  return `<header class="wide">
+  <h1>Olá, <b>${esc(S.name)}</b><span class="pill" style="font-size:.7rem;margin-left:6px">🧪 Você é um testador beta</span>
+    <div class="mut" style="font-size:.8rem;font-weight:500">${now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+  </h1>
+  <div style="display:flex;gap:8px;align-items:center">
+    <button type="button" class="btn btn-sm" data-home-customize style="font-size:.78rem;padding:6px 10px;border-radius:var(--r);background:var(--card);border:1px solid var(--bd)" title="Personalizar blocos da tela inicial">🎛 Personalizar Tela</button>
+    <button class="ib" id="eye" aria-label="${S.hide ? 'Mostrar' : 'Ocultar'} valores" aria-pressed="${S.hide}">${S.hide ? '🙈' : '👁'}</button>
+    <button class="ib" data-v="profile" aria-label="Configurações">⚙</button>
+  </div>
+</header>
+
+<section class="card bal wide" title="Toque duas vezes para ocultar/mostrar valores">
+  ${ch('Saldo Livre Disponível', `<span class="pill ${chg == null ? '' : chg >= 0 ? 'pos' : 'neg'}">${chg == null ? 'Líquido' : (chg >= 0 ? '↑ +' : '↓ ') + chg.toFixed(0) + '% vs. mês anterior'}</span>`)}
+  <div class="cb">
+    <div class="big num ${totalPersonalBalanceCents >= 0 ? '' : 'neg'}">${S.hide ? '••••' : brl(totalPersonalBalanceCents)}</div>
+    <div class="mut" style="font-size:.82rem;margin-top:6px">
+      Total nos Bancos: <b>${S.hide ? '••••' : brl(totalBankBalanceCents)}</b> ${totalCustodyCents > 0 ? `· 🤝 <b>${S.hide ? '••••' : brl(totalCustodyCents)}</b> em custódia` : ''}
+    </div>
+  </div>
+</section>
+
+<div class="acts wide"><button class="btn" data-add="out">− Registrar gasto</button><button class="btn p" data-add="in">+ Registrar ganho</button></div>
+
+${renderedWidgets}`;
 }

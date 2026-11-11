@@ -2,7 +2,7 @@
    sw.js — Service Worker para Cache Offline-First
    ========================================================================== */
 
-const CACHE_NAME = 'lumen-finance-v2';
+const CACHE_NAME = 'lumen-finance-v3-beta';
 
 const ASSETS = [
   './',

@@ -5,6 +5,7 @@
    ========================================================================== */
 
 import {
+  DEFAULT_WHATSAPP_TEMPLATE,
   S,
   debtRemaining,
   getDebtTotals,
@@ -24,21 +25,154 @@ export const setDebtsTab = (t: DebtType): void => {
 };
 
 /**
+ * Formata a mensagem de cobrança substituindo tags {nome}, {valor}, {descricao}, {pix}.
+ */
+export function formatWhatsAppMessage(
+  debt: DebtRecord,
+  template?: string,
+  pixKey?: string
+): string {
+  const tpl = template || S.whatsappTemplate || DEFAULT_WHATSAPP_TEMPLATE;
+  const remaining = brlPlain(debtRemaining(debt));
+  const effectivePix = pixKey !== undefined ? pixKey : (debt.pixKey || S.defaultPixKey || '');
+  const desc = debt.description ? debt.description : 'valor combinado';
+
+  return tpl
+    .replace(/\{nome\}/gi, debt.personName)
+    .replace(/\{valor\}/gi, remaining)
+    .replace(/\{descricao\}/gi, desc)
+    .replace(/\{pix\}/gi, effectivePix);
+}
+
+/**
  * Monta a mensagem amigável de cobrança com a chave Pix e o saldo restante.
  */
 export const buildCollectionMessage = (debt: DebtRecord): string => {
-  const remaining = brlPlain(debtRemaining(debt));
-  const what = debt.description ? ` referente a ${debt.description}` : '';
-  return debt.pixKey
-    ? `Olá, ${debt.personName}! Segue a chave Pix ${debt.pixKey}${what} no valor de ${remaining}. Abraço!`
-    : `Olá, ${debt.personName}! Passando para lembrar${what || ' do valor combinado'} no valor de ${remaining}. Abraço!`;
+  return formatWhatsAppMessage(debt);
 };
 
 /**
  * Gera o link wa.me com o texto de cobrança já codificado.
  */
 export const buildWhatsAppLink = (debt: DebtRecord): string =>
-  `https://wa.me/?text=${encodeURIComponent(buildCollectionMessage(debt))}`;
+  `https://wa.me/?text=${encodeURIComponent(formatWhatsAppMessage(debt))}`;
+
+/**
+ * Abre o modal de configuração global do modelo de cobrança de WhatsApp.
+ */
+export function openWhatsAppConfigDialog(): void {
+  const f = document.querySelector<HTMLFormElement>('#f2');
+  if (!f) return;
+  f.dataset.kind = 'whatsapp_config';
+  delete f.dataset.entityId;
+
+  const currentTemplate = S.whatsappTemplate || DEFAULT_WHATSAPP_TEMPLATE;
+  const defaultPix = S.defaultPixKey || '';
+
+  const previewExample = (tpl: string, pix: string): string => {
+    return tpl
+      .replace(/\{nome\}/gi, 'Carlos Silva')
+      .replace(/\{valor\}/gi, 'R$ 75,00')
+      .replace(/\{descricao\}/gi, 'Almoço de sexta')
+      .replace(/\{pix\}/gi, pix || 'sua-chave@pix.com');
+  };
+
+  f.innerHTML = `
+    <h2 id="dt2" style="margin:0 0 4px;font-size:1.2rem">💬 Personalizar Mensagem de Cobrança</h2>
+    <div class="mut" style="font-size:.82rem;margin-bottom:12px">Configure o modelo de texto usado ao cobrar devedores no WhatsApp.</div>
+
+    <label style="margin-bottom:10px">
+      Chave Pix Padrão (opcional)
+      <input id="wac-default-pix" value="${esc(defaultPix)}" placeholder="Ex.: seu@email.com ou celular" style="margin-top:4px">
+    </label>
+
+    <div style="margin-bottom:6px;font-size:.82rem;font-weight:600">Tags rápidas (clique para inserir):</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+      <button type="button" class="btn btn-sm" data-insert-wac-tag="{nome}">+ {nome}</button>
+      <button type="button" class="btn btn-sm" data-insert-wac-tag="{valor}">+ {valor}</button>
+      <button type="button" class="btn btn-sm" data-insert-wac-tag="{descricao}">+ {descricao}</button>
+      <button type="button" class="btn btn-sm" data-insert-wac-tag="{pix}">+ {pix}</button>
+    </div>
+
+    <label style="margin-bottom:10px">
+      Modelo do Texto
+      <textarea id="wac-template" rows="4" style="width:100%;resize:vertical;padding:10px;font-size:.88rem;border:1px solid var(--bd);border-radius:var(--r);background:var(--card);color:var(--tx);margin-top:4px;box-sizing:border-box" required>${esc(currentTemplate)}</textarea>
+    </label>
+
+    <div style="margin-top:10px;padding:10px 12px;background:var(--card);border:1px dashed var(--bd);border-radius:var(--r)">
+      <div class="mut" style="font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;font-weight:700">👀 Pré-visualização com dados simulados</div>
+      <div id="wac-preview" style="font-size:.84rem;line-height:1.45;white-space:pre-wrap;color:var(--tx)">${esc(previewExample(currentTemplate, defaultPix))}</div>
+    </div>
+
+    <div id="f2e" class="neg" role="alert" style="margin-top:8px;font-size:.85rem"></div>
+    <div style="display:flex;gap:10px;margin-top:14px">
+      <button type="button" class="btn" data-close-dlg2 style="flex:1">Cancelar</button>
+      <button type="submit" class="btn p" style="flex:1">Salvar Template</button>
+    </div>
+  `;
+
+  const dlg2 = document.querySelector<HTMLDialogElement>('#dlg2');
+  dlg2?.showModal();
+}
+
+/**
+ * Abre o diálogo de disparo pré-envio com revisão de dados e mensagem no WhatsApp.
+ */
+export function openSendWhatsAppDialog(debtId: string): void {
+  const debt = S.debts.find((d) => d.id === debtId);
+  if (!debt) return;
+
+  const remaining = debtRemaining(debt);
+  const pixKey = debt.pixKey || S.defaultPixKey || '';
+  const messageText = formatWhatsAppMessage(debt, S.whatsappTemplate, pixKey);
+
+  const f = document.querySelector<HTMLFormElement>('#f2');
+  if (!f) return;
+  f.dataset.kind = 'send_whatsapp';
+  f.dataset.entityId = debtId;
+
+  f.innerHTML = `
+    <h2 id="dt2" style="margin:0 0 4px;font-size:1.2rem">💬 Cobrar no WhatsApp</h2>
+    <div class="mut" style="font-size:.85rem;margin-bottom:12px">Revise os dados e o texto antes de enviar para <b>${esc(debt.personName)}</b>.</div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--card);border:1px solid var(--bd);border-radius:var(--r);margin-bottom:12px">
+      <div>
+        <div class="mut" style="font-size:.75rem;text-transform:uppercase;letter-spacing:.04em">Valor restante</div>
+        <b class="num pos" style="font-size:1.2rem">${brlPlain(remaining)}</b>
+      </div>
+      <div style="text-align:right">
+        <div class="mut" style="font-size:.75rem">Referência</div>
+        <div style="font-size:.88rem;font-weight:600">${esc(debt.description || 'Sem descrição')}</div>
+      </div>
+    </div>
+
+    <label style="margin-bottom:10px">
+      Chave Pix para esta cobrança
+      <div style="display:flex;gap:6px;margin-top:4px">
+        <input id="wa-send-pix" value="${esc(pixKey)}" placeholder="Ex.: sua chave Pix" style="flex:1">
+        <button type="button" class="btn btn-sm" data-copy-send-pix title="Copiar Chave Pix" style="padding:0 12px">📋 Copiar</button>
+      </div>
+    </label>
+
+    <label style="margin-bottom:10px">
+      Mensagem a ser enviada
+      <textarea id="wa-send-text" rows="4" style="width:100%;resize:vertical;padding:10px;font-size:.88rem;border:1px solid var(--bd);border-radius:var(--r);background:var(--card);color:var(--tx);margin-top:4px;box-sizing:border-box" required>${esc(messageText)}</textarea>
+    </label>
+
+    <div style="font-size:.78rem;color:var(--mut);line-height:1.4;margin-bottom:10px">
+      💡 Ao confirmar, o WhatsApp abrirá diretamente com o texto acima.
+    </div>
+
+    <div id="f2e" class="neg" role="alert" style="margin-top:8px;font-size:.85rem"></div>
+    <div style="display:flex;gap:10px;margin-top:14px">
+      <button type="button" class="btn" data-close-dlg2 style="flex:1">Cancelar</button>
+      <button type="button" class="btn p" data-send-wa-confirm style="flex:1;background:#25d366;border-color:#25d366;color:#fff;font-weight:700">Enviar no WhatsApp 🚀</button>
+    </div>
+  `;
+
+  const dlg2 = document.querySelector<HTMLDialogElement>('#dlg2');
+  dlg2?.showModal();
+}
 
 /**
  * Abre o formulário de amortização / quitação de dívida com liquidação consciente de custódia e contas.
@@ -88,18 +222,6 @@ export function openAmortizeWithAccount(debtId: string): void {
 ${contentHtml}
 <div id="f2e" class="neg" role="alert" style="margin-top:8px;font-size:.85rem"></div>
 <div style="display:flex;gap:10px;margin-top:14px"><button type="button" class="btn" data-close-dlg2 style="flex:1">Cancelar</button><button class="btn p" style="flex:1">Salvar</button></div>`;
-
-  const sourceSelect = f.querySelector<HTMLSelectElement>('#am-funding-source');
-  const accWrap = f.querySelector<HTMLElement>('#am-acc-wrap');
-  sourceSelect?.addEventListener('change', () => {
-    if (accWrap) accWrap.style.display = sourceSelect.value === 'my_account' ? 'block' : 'none';
-  });
-
-  const fillBtn = f.querySelector<HTMLButtonElement>('#am-fill-max');
-  fillBtn?.addEventListener('click', () => {
-    const vInput = f.querySelector<HTMLInputElement>('#am-v');
-    if (vInput) vInput.value = centsToInput(remaining);
-  });
 
   const dlg2 = document.querySelector<HTMLDialogElement>('#dlg2');
   dlg2?.showModal();
@@ -160,12 +282,6 @@ export function openSettleAllDialog(personName: string, debtType: DebtType): voi
 ${contentHtml}
 <div id="f2e" class="neg" role="alert" style="margin-top:8px;font-size:.85rem"></div>
 <div style="display:flex;gap:10px;margin-top:14px"><button type="button" class="btn" data-close-dlg2 style="flex:1">Cancelar</button><button class="btn p" style="flex:1">Confirmar Liquidação</button></div>`;
-
-  const sourceSelect = f.querySelector<HTMLSelectElement>('#st-funding-source');
-  const accWrap = f.querySelector<HTMLElement>('#st-acc-wrap');
-  sourceSelect?.addEventListener('change', () => {
-    if (accWrap) accWrap.style.display = sourceSelect.value === 'my_account' ? 'block' : 'none';
-  });
 
   const dlg2 = document.querySelector<HTMLDialogElement>('#dlg2');
   dlg2?.showModal();
@@ -259,81 +375,7 @@ export function debts(): string {
     ? list.map(debtCard).join('')
     : `<div class="empty">${debtsTab === 'to_receive' ? 'Ninguém te deve nada por aqui.' : 'Você não deve nada a ninguém.'}<br><button type="button" class="btn p" data-debt-add>Registrar dívida</button></div>`;
 
-  return `<header class="wide"><h1><b>Dívidas</b><div class="mut" style="font-size:.8rem;font-weight:500">Empréstimos, cobranças e amortizações</div></h1><button type="button" class="btn p" data-debt-add>+ Nova</button></header>
+  return `<header class="wide"><h1><b>Dívidas</b><div class="mut" style="font-size:.8rem;font-weight:500">Empréstimos, cobranças e amortizações</div></h1><div style="display:flex;gap:8px"><button type="button" class="btn btn-sm" data-debt-msg-config title="Personalizar mensagem de cobrança do WhatsApp">💬 Personalizar Mensagem</button><button type="button" class="btn p" data-debt-add>+ Nova</button></div></header>
 <section class="card wide"><div class="cb debt-summary"><div class="kpi-box"><span class="mut">Total a receber</span><b class="num pos">${brl(totals.toReceiveCents)}</b></div><div class="kpi-box"><span class="mut">Total a pagar</span><b class="num neg">${brl(totals.toPayCents)}</b></div></div></section>
 <section class="card wide"><div class="cb"><div class="seg" style="margin-bottom:12px"><button type="button" data-debt-tab="to_receive" aria-pressed="${debtsTab === 'to_receive'}">Quem me deve</button><button type="button" data-debt-tab="to_pay" aria-pressed="${debtsTab === 'to_pay'}">A quem devo</button></div>${groupedSectionHtml}<div class="debt-list" style="margin-top:12px">${body}</div></div></section>`;
-}
-
-if (typeof document !== 'undefined') {
-  document.addEventListener(
-    'click',
-    (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target) return;
-
-      const payBtn = target.closest<HTMLElement>('[data-debt-pay]');
-      if (payBtn?.dataset.debtPay) {
-        e.preventDefault();
-        e.stopPropagation();
-        openAmortizeWithAccount(payBtn.dataset.debtPay);
-        return;
-      }
-
-      const settleBtn = target.closest<HTMLElement>('[data-settle-person]');
-      if (settleBtn?.dataset.settlePerson && settleBtn.dataset.settleType) {
-        e.preventDefault();
-        e.stopPropagation();
-        openSettleAllDialog(
-          settleBtn.dataset.settlePerson,
-          settleBtn.dataset.settleType as DebtType
-        );
-        return;
-      }
-
-      const compBtn = target.closest<HTMLElement>('[data-compensate-person]');
-      if (compBtn?.dataset.compensatePerson) {
-        e.preventDefault();
-        e.stopPropagation();
-        const person = compBtn.dataset.compensatePerson;
-        if (
-          confirm(
-            `Executar o encontro de contas para ${person}? As dívidas mútuas serão abatidas automaticamente.`
-          )
-        ) {
-          settleMutualDebt(person);
-          const tabBtn = document.querySelector<HTMLElement>(
-            `[data-debt-tab="${debtsTab}"]`
-          );
-          if (tabBtn) tabBtn.click();
-        }
-      }
-    },
-    true
-  );
-
-  document.addEventListener(
-    'submit',
-    (e: SubmitEvent) => {
-      const form = e.target as HTMLFormElement | null;
-      if (form?.id === 'f2' && form.dataset.kind === 'settle-all') {
-        e.preventDefault();
-        e.stopPropagation();
-        const person = form.dataset.settlePerson || '';
-        const debtType = (form.dataset.settleType as DebtType) || 'to_receive';
-        const accId = form.querySelector<HTMLSelectElement>('#st-account')?.value;
-        const fundingSource = (form.querySelector<HTMLSelectElement>('#st-funding-source')?.value as
-          | 'my_account'
-          | 'third_party_custody'
-          | 'external') || 'my_account';
-        settleAllDebtsOfPerson(person, debtType, false, accId, fundingSource);
-        document.querySelector<HTMLDialogElement>('#dlg2')?.close();
-
-        const tabBtn = document.querySelector<HTMLElement>(
-          `[data-debt-tab="${debtType}"]`
-        );
-        if (tabBtn) tabBtn.click();
-      }
-    },
-    true
-  );
 }
